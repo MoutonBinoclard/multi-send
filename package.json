@@ -1,7 +1,7 @@
 {
   "name": "multi-send",
   "version": "1.0.0",
-  "description": "Bot Discord multi-serveurs pour envoyer des messages",
+  "description": "Send message to multiple Discord channels",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
