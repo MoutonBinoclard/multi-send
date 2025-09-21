@@ -1,39 +1,39 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = require("discord.js");
 const fs = require("fs");
 
-const TOKEN = process.env.TOKEN;       // Ton token vient de Render
-const CLIENT_ID = process.env.CLIENT_ID; // ID de ton bot
+const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// --- Config par serveur ---
+// --- Load config ---
 let config = {};
 if (fs.existsSync("config.json")) {
-  config = JSON.parse(fs.readFileSync("config.json", "utf8"));
+  try {
+    const data = fs.readFileSync("config.json", "utf8");
+    config = data ? JSON.parse(data) : {};
+  } catch (err) {
+    console.error("Erreur lecture config.json:", err);
+    config = {};
+  }
 }
 function saveConfig() {
   fs.writeFileSync("config.json", JSON.stringify(config, null, 2));
 }
 
-// --- Commandes slash ---
+// --- Commands ---
 const commands = [
   new SlashCommandBuilder()
     .setName("send")
-    .setDescription("Envoie un message sur les salons configurés")
+    .setDescription("Envoie un message sur tous les salons configurés")
     .addStringOption(opt => opt.setName("message").setDescription("Le message à envoyer").setRequired(true)),
 
   new SlashCommandBuilder()
-    .setName("roles_id_edit")
-    .setDescription("Ajoute/modifie les rôles à ping")
-    .addStringOption(opt => opt.setName("roles").setDescription("IDs séparés par des virgules").setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName("channel_id_edit")
-    .setDescription("Ajoute/modifie les salons cibles")
-    .addStringOption(opt => opt.setName("channels").setDescription("IDs séparés par des virgules").setRequired(true)),
+    .setName("edit")
+    .setDescription("Ajouter / Modifier / Supprimer un salon et définir un ping par salon")
 ].map(cmd => cmd.toJSON());
 
-// --- Déploiement commandes globales ---
+// --- Deploy commands ---
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 (async () => {
   try {
@@ -45,41 +45,84 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
   }
 })();
 
-// --- Réactions aux commandes ---
+// --- Interaction ---
 client.on("interactionCreate", async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-
   const guildId = interaction.guildId;
-  if (!config[guildId]) config[guildId] = { channels: [], roles: [] };
+  if (!config[guildId]) config[guildId] = { channels: [] };
 
-  if (interaction.commandName === "send") {
-    const msg = interaction.options.getString("message");
-    const roles = config[guildId].roles.map(r => `<@&${r}>`).join(" ");
-    for (const channelId of config[guildId].channels) {
-      try {
-        const channel = await client.channels.fetch(channelId);
-        if (channel && channel.isTextBased()) {
-          await channel.send(`${roles} ${msg}`);
+  // --- Commandes slash ---
+  if (interaction.isChatInputCommand()) {
+
+    // --- SEND ---
+    if (interaction.commandName === "send") {
+      const message = interaction.options.getString("message");
+      const guildConfig = config[guildId];
+      if (!guildConfig.channels.length) return interaction.reply({ content: "Aucun salon configuré", ephemeral: true });
+
+      for (const ch of guildConfig.channels) {
+        try {
+          const channel = await client.channels.fetch(ch.id);
+          if (channel && channel.isTextBased()) {
+            const ping = ch.ping ? `<@&${ch.ping}> ` : "";
+            await channel.send(`${ping}${message}`);
+          }
+        } catch (err) {
+          console.error(`Erreur sur le salon ${ch.id}:`, err);
         }
-      } catch (err) {
-        console.error(`Erreur en envoyant sur ${channelId}:`, err);
       }
+      await interaction.reply({ content: "Message envoyé ✅", ephemeral: true });
     }
-    await interaction.reply({ content: "Message envoyé ✅", ephemeral: true });
+
+    // --- EDIT ---
+    else if (interaction.commandName === "edit") {
+      const modal = new ModalBuilder()
+        .setCustomId("edit_modal")
+        .setTitle("Modifier salons et ping")
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId("channels_input")
+              .setLabel("Salons et ping (ex: 123456:987654 pour ping, 111111 pour sans ping, -222222 pour supprimer)")
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(false)
+          )
+        );
+      await interaction.showModal(modal);
+    }
   }
 
-  else if (interaction.commandName === "roles_id_edit") {
-    const roleList = interaction.options.getString("roles").split(",").map(r => r.trim());
-    config[guildId].roles = roleList;
-    saveConfig();
-    await interaction.reply({ content: `Rôles mis à jour ✅ (${roleList.join(", ")})`, ephemeral: true });
-  }
+  // --- Modal submit ---
+  else if (interaction.isModalSubmit()) {
+    if (interaction.customId === "edit_modal") {
+      const value = interaction.fields.getTextInputValue("channels_input").trim();
+      const oldChannels = config[guildId].channels || [];
 
-  else if (interaction.commandName === "channel_id_edit") {
-    const channelList = interaction.options.getString("channels").split(",").map(c => c.trim());
-    config[guildId].channels = channelList;
-    saveConfig();
-    await interaction.reply({ content: `Salons mis à jour ✅ (${channelList.join(", ")})`, ephemeral: true });
+      if (value) {
+        const items = value.split(",");
+        for (const item of items) {
+          const clean = item.trim();
+          if (!clean) continue;
+
+          // Supprimer salon si - devant
+          if (clean.startsWith("-")) {
+            const idToRemove = clean.slice(1);
+            const index = oldChannels.findIndex(c => c.id === idToRemove);
+            if (index !== -1) oldChannels.splice(index, 1);
+            continue;
+          }
+
+          // Ajouter ou modifier salon
+          const [id, ping] = clean.split(":").map(s => s.trim());
+          const existing = oldChannels.find(c => c.id === id);
+          if (existing) existing.ping = ping || null;
+          else oldChannels.push({ id, ping: ping || null });
+        }
+      }
+
+      config[guildId].channels = oldChannels;
+      saveConfig();
+      await interaction.reply({ content: "Configuration mise à jour ✅", ephemeral: true });
+    }
   }
 });
 
