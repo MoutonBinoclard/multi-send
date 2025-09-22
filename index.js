@@ -40,10 +40,7 @@ const commands = [
       opt.setName("message")
         .setDescription("Le message à envoyer")
         .setRequired(true)
-    ),
-  new SlashCommandBuilder()
-    .setName("wake")
-    .setDescription("Réveille le bot si Render l'a endormi")
+    )
 ].map(cmd => cmd.toJSON());
 
 // --- Deploy commands ---
@@ -91,21 +88,6 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
     await interaction.reply({ content: "✅ Message envoyé", ephemeral: true });
-  }
-
-  if (interaction.commandName === "wake") {
-    try {
-      // Node 18+ has built-in fetch
-      const res = await fetch("https://multi-send.onrender.com");
-      if (res.ok) {
-        await interaction.reply({ content: "✅ Bot réveillé !", ephemeral: true });
-      } else {
-        await interaction.reply({ content: "⚠️ Impossible de réveiller le service.", ephemeral: true });
-      }
-    } catch (err) {
-      console.error("❌ Erreur pendant le réveil:", err);
-      await interaction.reply({ content: "❌ Erreur pendant le réveil du service.", ephemeral: true });
-    }
   }
 });
 
