@@ -9,9 +9,11 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 // Load allowed users from config
 let allowedUsers = [];
+let allowedUserIds = [];
 try {
   const config = JSON.parse(fs.readFileSync("config.json", "utf8"));
   allowedUsers = config.allowedUsers || [];
+  allowedUserIds = allowedUsers.map(u => u.id);
 } catch (err) {
   console.error("Error reading config.json:", err);
 }
@@ -62,7 +64,7 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  if (!allowedUsers.includes(interaction.user.id)) {
+  if (!allowedUserIds.includes(interaction.user.id)) {
     return interaction.reply({ content: "❌ You are not authorized to use this command.", ephemeral: true });
   }
 
@@ -71,6 +73,10 @@ client.on("interactionCreate", async (interaction) => {
     const message = interaction.options.getString("message");
     let successCount = 0;
     let errorCount = 0;
+
+    // Find the user object for formatting
+    const userObj = allowedUsers.find(u => u.id === interaction.user.id);
+    const fromLine = `-# from <@${interaction.user.id}>`;
 
     for (const [guildId, channels] of Object.entries(channelsConfig)) {
       const sentChannels = new Set();
@@ -84,10 +90,10 @@ client.on("interactionCreate", async (interaction) => {
           if (channel && channel.isTextBased()) {
             let content;
             if (interaction.commandName === "send") {
-              const ping = ch.ping ? `<@&${ch.ping}> ` : "";
-              content = `${ping}${message}`;
+              const ping = ch.ping ? `<@&${ch.ping}>\n` : "";
+              content = `${fromLine}\n${ping}${message}`;
             } else {
-              content = message;
+              content = `${fromLine}\n${message}`;
             }
             await channel.send(content);
             successCount++;
