@@ -105,4 +105,14 @@ http.createServer((req, res) => {
   console.log(`HTTP server listening on port ${PORT}`);
 });
 
+// === KEEP ALIVE ===
+// Ping toutes les 13 minutes pour rester actif sur Render
+setInterval(() => {
+  http.get(`http://localhost:${PORT}`, res => {
+    console.log(`Pinged self to stay awake. Status: ${res.statusCode}`);
+  }).on("error", err => {
+    console.error("Error pinging self:", err);
+  });
+}, 13 * 60 * 1000); // 13 minutes en ms
+
 client.login(TOKEN);
