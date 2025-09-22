@@ -61,13 +61,17 @@ client.on("interactionCreate", async (interaction) => {
 
   if (interaction.commandName === "send") {
     await interaction.deferReply({ ephemeral: true }); // Déférer pour éviter doublons
-
     const message = interaction.options.getString("message");
     let successCount = 0;
     let errorCount = 0;
 
     for (const [guildId, channels] of Object.entries(channelsConfig)) {
+      const sentChannels = new Set(); // Pour éviter d’envoyer 2 fois dans le même canal
+
       for (const ch of channels) {
+        if (sentChannels.has(ch.id)) continue; // Skip si déjà envoyé
+        sentChannels.add(ch.id);
+
         try {
           const channel = await client.channels.fetch(ch.id);
           if (channel && channel.isTextBased()) {
@@ -75,7 +79,7 @@ client.on("interactionCreate", async (interaction) => {
             await channel.send(`${ping}${message}`);
             successCount++;
 
-            // ⚡ Attendre 1 seconde avant d’envoyer le prochain message
+            // Pause 1 seconde entre les messages du même serveur
             await new Promise(r => setTimeout(r, 1000));
           }
         } catch (err) {
