@@ -39,7 +39,7 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(cmd => cmd.toJSON());
 
-// Deploy commands
+// Deploy commands (optional)
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 (async () => {
   try {
@@ -55,20 +55,17 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  // Check if user is allowed
   if (!allowedUsers.includes(interaction.user.id)) {
-    return interaction.reply({ 
-      content: "❌ You are not authorized to use this command.", 
-      ephemeral: true 
-    });
+    return interaction.reply({ content: "❌ You are not authorized to use this command.", ephemeral: true });
   }
 
   if (interaction.commandName === "send") {
+    await interaction.deferReply({ ephemeral: true }); // Déférer pour éviter doublons
+
     const message = interaction.options.getString("message");
     let successCount = 0;
     let errorCount = 0;
 
-    // Send to all channels in all servers
     for (const [guildId, channels] of Object.entries(channelsConfig)) {
       for (const ch of channels) {
         try {
@@ -77,6 +74,9 @@ client.on("interactionCreate", async (interaction) => {
             const ping = ch.ping ? `<@&${ch.ping}> ` : "";
             await channel.send(`${ping}${message}`);
             successCount++;
+
+            // ⚡ Attendre 1 seconde avant d’envoyer le prochain message
+            await new Promise(r => setTimeout(r, 1000));
           }
         } catch (err) {
           console.error(`Error in channel ${ch.id}:`, err);
@@ -85,9 +85,8 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
-    await interaction.reply({ 
-      content: `Message sent to ${successCount} channel(s). ${errorCount > 0 ? `${errorCount} error(s) occurred.` : ''}`, 
-      ephemeral: true 
+    await interaction.editReply({ 
+      content: `Message sent to ${successCount} channel(s). ${errorCount > 0 ? `${errorCount} error(s) occurred.` : ''}`
     });
   }
 });
@@ -106,13 +105,12 @@ http.createServer((req, res) => {
 });
 
 // === KEEP ALIVE ===
-// Ping toutes les 13 minutes pour rester actif sur Render
 setInterval(() => {
   http.get(`http://localhost:${PORT}`, res => {
     console.log(`Pinged self to stay awake. Status: ${res.statusCode}`);
   }).on("error", err => {
     console.error("Error pinging self:", err);
   });
-}, 13 * 60 * 1000); // 13 minutes en ms
+}, 13 * 60 * 1000); // 13 minutes
 
 client.login(TOKEN);
