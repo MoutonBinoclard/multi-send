@@ -21,10 +21,10 @@ try {
 // Load match-id.json
 let channelsConfig = {};
 try {
-  const data = fs.readFileSync("match-id.json", "utf8");
+  const data = fs.readFileSync("matchid.json", "utf8");
   channelsConfig = JSON.parse(data);
 } catch (err) {
-  console.error("Error reading match-id.json:", err);
+  console.error("Error reading matchid.json:", err);
   channelsConfig = {};
 }
 
