@@ -35,6 +35,14 @@ const commands = [
       opt.setName("message")
         .setDescription("The message to send")
         .setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("no-ping")
+    .setDescription("Send a message to all configured channels without pinging any roles")
+    .addStringOption(opt =>
+      opt.setName("message")
+        .setDescription("The message to send")
+        .setRequired(true)
     )
 ].map(cmd => cmd.toJSON());
 
@@ -58,27 +66,31 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply({ content: "❌ You are not authorized to use this command.", ephemeral: true });
   }
 
-  if (interaction.commandName === "send") {
-    await interaction.deferReply({ ephemeral: true }); // Déférer pour éviter doublons
+  if (interaction.commandName === "send" || interaction.commandName === "no-ping") {
+    await interaction.deferReply({ ephemeral: true });
     const message = interaction.options.getString("message");
     let successCount = 0;
     let errorCount = 0;
 
     for (const [guildId, channels] of Object.entries(channelsConfig)) {
-      const sentChannels = new Set(); // Pour éviter d’envoyer 2 fois dans le même canal
+      const sentChannels = new Set();
 
       for (const ch of channels) {
-        if (sentChannels.has(ch.id)) continue; // Skip si déjà envoyé
+        if (sentChannels.has(ch.id)) continue;
         sentChannels.add(ch.id);
 
         try {
           const channel = await client.channels.fetch(ch.id);
           if (channel && channel.isTextBased()) {
-            const ping = ch.ping ? `<@&${ch.ping}> ` : "";
-            await channel.send(`${ping}${message}`);
+            let content;
+            if (interaction.commandName === "send") {
+              const ping = ch.ping ? `<@&${ch.ping}> ` : "";
+              content = `${ping}${message}`;
+            } else {
+              content = message;
+            }
+            await channel.send(content);
             successCount++;
-
-            // Pause 500ms entre les messages du même serveur
             await new Promise(r => setTimeout(r, 500));
           }
         } catch (err) {
