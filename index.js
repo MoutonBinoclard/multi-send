@@ -76,7 +76,7 @@ client.on("interactionCreate", async (interaction) => {
 
     // Find the user object for formatting
     const userObj = allowedUsers.find(u => u.id === interaction.user.id);
-    const fromLine = `-# from <@${interaction.user.id}>`;
+    const fromLine = `-# _from <@${interaction.user.id}>_`;
 
     for (const [guildId, channels] of Object.entries(channelsConfig)) {
       const sentChannels = new Set();
