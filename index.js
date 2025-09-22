@@ -1,5 +1,6 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
 const fs = require("fs");
+const http = require("http"); // fake server for Render
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
@@ -21,7 +22,11 @@ const commands = [
   new SlashCommandBuilder()
     .setName("send")
     .setDescription("Envoie un message sur tous les salons configurés")
-    .addStringOption(opt => opt.setName("message").setDescription("Le message à envoyer").setRequired(true))
+    .addStringOption(opt =>
+      opt.setName("message")
+        .setDescription("Le message à envoyer")
+        .setRequired(true)
+    )
 ].map(cmd => cmd.toJSON());
 
 // --- Deploy commands ---
@@ -40,7 +45,9 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   const guildId = interaction.guildId;
-  if (!channelsConfig[guildId]) return interaction.reply({ content: "Aucun salon configuré", ephemeral: true });
+  if (!channelsConfig[guildId]) {
+    return interaction.reply({ content: "Aucun salon configuré", ephemeral: true });
+  }
 
   if (interaction.commandName === "send") {
     const message = interaction.options.getString("message");
@@ -63,6 +70,15 @@ client.on("interactionCreate", async (interaction) => {
 
 client.once("ready", () => {
   console.log(`🤖 Bot multi-send connecté en tant que ${client.user.tag}`);
+});
+
+// --- Fake HTTP server for Render ---
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("Bot multi-send is running!\n");
+}).listen(PORT, () => {
+  console.log(`Fake HTTP server listening on port ${PORT}`);
 });
 
 client.login(TOKEN);
