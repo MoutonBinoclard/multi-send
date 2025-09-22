@@ -1,84 +1,108 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
 const fs = require("fs");
-const http = require("http"); // fake server for Render
+const http = require("http");
 
 const TOKEN = process.env.TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// --- Load channels.json ---
+// Load allowed users from config
+let allowedUsers = [];
+try {
+  const config = JSON.parse(fs.readFileSync("config.json", "utf8"));
+  allowedUsers = config.allowedUsers || [];
+} catch (err) {
+  console.error("Error reading config.json:", err);
+}
+
+// Load channels.json
 let channelsConfig = {};
 try {
   const data = fs.readFileSync("channels.json", "utf8");
   channelsConfig = JSON.parse(data);
 } catch (err) {
-  console.error("Erreur lecture channels.json:", err);
+  console.error("Error reading channels.json:", err);
   channelsConfig = {};
 }
 
-// --- Commands ---
+// Slash commands
 const commands = [
   new SlashCommandBuilder()
     .setName("send")
-    .setDescription("Envoie un message sur tous les salons configurés")
+    .setDescription("Send a message to all configured channels across all servers")
     .addStringOption(opt =>
       opt.setName("message")
-        .setDescription("Le message à envoyer")
+        .setDescription("The message to send")
         .setRequired(true)
     )
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(cmd => cmd.toJSON());
 
-// --- Deploy commands ---
+// Deploy commands
 const rest = new REST({ version: "10" }).setToken(TOKEN);
 (async () => {
   try {
-    console.log("Déploiement des commandes slash...");
+    console.log("Deploying slash commands...");
     await rest.put(Routes.applicationCommands(CLIENT_ID), { body: commands });
-    console.log("Commandes déployées ✅");
+    console.log("Commands deployed ✅");
   } catch (err) {
-    console.error("Erreur déploiement commandes:", err);
+    console.error("Error deploying commands:", err);
   }
 })();
 
-// --- Interaction ---
+// Interaction handling
 client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
-  const guildId = interaction.guildId;
-  if (!channelsConfig[guildId]) {
-    return interaction.reply({ content: "Aucun salon configuré", ephemeral: true });
+
+  // Check if user is allowed
+  if (!allowedUsers.includes(interaction.user.id)) {
+    return interaction.reply({ 
+      content: "❌ You are not authorized to use this command.", 
+      ephemeral: true 
+    });
   }
 
   if (interaction.commandName === "send") {
     const message = interaction.options.getString("message");
-    const guildChannels = channelsConfig[guildId];
+    let successCount = 0;
+    let errorCount = 0;
 
-    for (const ch of guildChannels) {
-      try {
-        const channel = await client.channels.fetch(ch.id);
-        if (channel && channel.isTextBased()) {
-          const ping = ch.ping ? `<@&${ch.ping}> ` : "";
-          await channel.send(`${ping}${message}`);
+    // Send to all channels in all servers
+    for (const [guildId, channels] of Object.entries(channelsConfig)) {
+      for (const ch of channels) {
+        try {
+          const channel = await client.channels.fetch(ch.id);
+          if (channel && channel.isTextBased()) {
+            const ping = ch.ping ? `<@&${ch.ping}> ` : "";
+            await channel.send(`${ping}${message}`);
+            successCount++;
+          }
+        } catch (err) {
+          console.error(`Error in channel ${ch.id}:`, err);
+          errorCount++;
         }
-      } catch (err) {
-        console.error(`Erreur sur le salon ${ch.id}:`, err);
       }
     }
-    await interaction.reply({ content: "Message envoyé ✅", ephemeral: true });
+
+    await interaction.reply({ 
+      content: `Message sent to ${successCount} channel(s). ${errorCount > 0 ? `${errorCount} error(s) occurred.` : ''}`, 
+      ephemeral: true 
+    });
   }
 });
 
 client.once("ready", () => {
-  console.log(`🤖 Bot multi-send connecté en tant que ${client.user.tag}`);
+  console.log(`🤖 Multi-send bot connected as ${client.user.tag}`);
 });
 
-// --- Fake HTTP server for Render ---
+// HTTP server for hosting platforms
 const PORT = process.env.PORT || 3000;
 http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("Bot multi-send is running!\n");
+  res.end("Multi-send bot is running!\n");
 }).listen(PORT, () => {
-  console.log(`Fake HTTP server listening on port ${PORT}`);
+  console.log(`HTTP server listening on port ${PORT}`);
 });
 
 client.login(TOKEN);
