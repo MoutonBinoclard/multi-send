@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require("discord.js");
 const fs = require("fs");
 const http = require("http");
+const fetch = require("node-fetch"); // <-- Import fetch for Node.js
 
 // --- Load secrets ---
 const TOKEN = process.env.TOKEN;
@@ -95,7 +96,6 @@ client.on("interactionCreate", async (interaction) => {
 
   if (interaction.commandName === "wake") {
     try {
-      // Ping our own Render URL to wake up the service
       const res = await fetch("https://multi-send.onrender.com");
       if (res.ok) {
         await interaction.reply({ content: "✅ Bot réveillé !", ephemeral: true });
