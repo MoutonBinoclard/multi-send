@@ -18,21 +18,21 @@ try {
   console.error("Error reading config.json:", err);
 }
 
-// Load channels.json
+// Load match-id.json
 let channelsConfig = {};
 try {
-  const data = fs.readFileSync("channels.json", "utf8");
+  const data = fs.readFileSync("match-id.json", "utf8");
   channelsConfig = JSON.parse(data);
 } catch (err) {
-  console.error("Error reading channels.json:", err);
+  console.error("Error reading match-id.json:", err);
   channelsConfig = {};
 }
 
 // Slash commands
 const commands = [
   new SlashCommandBuilder()
-    .setName("send")
-    .setDescription("Send a message to all configured channels across all servers")
+    .setName("matchid")
+    .setDescription("Send a message to all configured match channels across all servers")
     .addStringOption(opt =>
       opt.setName("message")
         .setDescription("The message to send")
@@ -40,7 +40,23 @@ const commands = [
     ),
   new SlashCommandBuilder()
     .setName("no-ping")
-    .setDescription("Send a message to all configured channels without pinging any roles")
+    .setDescription("Send a message to all configured match channels without pinging any roles")
+    .addStringOption(opt =>
+      opt.setName("message")
+        .setDescription("The message to send")
+        .setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("announce")
+    .setDescription("Send a message to all configured announce channels across all servers")
+    .addStringOption(opt =>
+      opt.setName("message")
+        .setDescription("The message to send")
+        .setRequired(true)
+    ),
+  new SlashCommandBuilder()
+    .setName("start")
+    .setDescription("Send a message to all configured start channels across all servers")
     .addStringOption(opt =>
       opt.setName("message")
         .setDescription("The message to send")
@@ -68,31 +84,37 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply({ content: "❌ You are not authorized to use this command.", ephemeral: true });
   }
 
-  if (interaction.commandName === "send" || interaction.commandName === "no-ping") {
-    await interaction.deferReply({ ephemeral: true });
-    const message = interaction.options.getString("message");
+  // Helper to send to a config file (match-id.json or announce.json)
+  async function sendToChannels(configFile, message, withPing = true, interaction) {
+    let configData = {};
+    try {
+      const data = fs.readFileSync(configFile, "utf8");
+      configData = JSON.parse(data);
+    } catch (err) {
+      console.error(`Error reading ${configFile}:`, err);
+      return interaction.editReply({ content: `❌ Error reading ${configFile}` });
+    }
+
     let successCount = 0;
     let errorCount = 0;
-
-    // Find the user object for formatting
     const userObj = allowedUsers.find(u => u.id === interaction.user.id);
     const trueName = userObj && userObj.true_name ? userObj.true_name : "unknown";
     const fromLine = `-# _from <@${interaction.user.id}> (${trueName})_`;
 
-    for (const [guildId, channels] of Object.entries(channelsConfig)) {
+    for (const [guildId, channels] of Object.entries(configData)) {
       const sentChannels = new Set();
-
       for (const ch of channels) {
         if (sentChannels.has(ch.id)) continue;
         sentChannels.add(ch.id);
-
         try {
           const channel = await client.channels.fetch(ch.id);
           if (channel && channel.isTextBased()) {
             let content;
-            if (interaction.commandName === "send") {
-              const ping = ch.ping ? `<@&${ch.ping}>\n` : "";
-              content = `${fromLine}\n${ping}${message}`;
+            if (withPing && ch.ping) {
+              let pings = Array.isArray(ch.ping)
+                ? ch.ping.map(id => `<@&${id}>`).join(' ')
+                : (ch.ping ? `<@&${ch.ping}>` : '');
+              content = `${fromLine}\n${pings}\n${message}`;
             } else {
               content = `${fromLine}\n${message}`;
             }
@@ -106,10 +128,27 @@ client.on("interactionCreate", async (interaction) => {
         }
       }
     }
-
-    await interaction.editReply({ 
+    await interaction.editReply({
       content: `Message sent to ${successCount} channel(s). ${errorCount > 0 ? `${errorCount} error(s) occurred.` : ''}`
     });
+  }
+
+  if (interaction.commandName === "matchid") {
+    await interaction.deferReply({ ephemeral: true });
+    const message = interaction.options.getString("message");
+    await sendToChannels("matchid.json", message, true, interaction);
+  } else if (interaction.commandName === "no-ping") {
+    await interaction.deferReply({ ephemeral: true });
+    const message = interaction.options.getString("message");
+    await sendToChannels("matchid.json", message, false, interaction);
+  } else if (interaction.commandName === "announce") {
+    await interaction.deferReply({ ephemeral: true });
+    const message = interaction.options.getString("message");
+    await sendToChannels("announce.json", message, true, interaction);
+  } else if (interaction.commandName === "start") {
+    await interaction.deferReply({ ephemeral: true });
+    const message = interaction.options.getString("message");
+    await sendToChannels("start.json", message, true, interaction);
   }
 });
 
