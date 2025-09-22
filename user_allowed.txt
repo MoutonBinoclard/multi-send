@@ -11,3 +11,4 @@ Soyia
 Servers
 Centralized scrims
 Mouton Sanctuary
+SAR FR
