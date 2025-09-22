@@ -79,8 +79,8 @@ client.on("interactionCreate", async (interaction) => {
             await channel.send(`${ping}${message}`);
             successCount++;
 
-            // Pause 1 seconde entre les messages du même serveur
-            await new Promise(r => setTimeout(r, 1000));
+            // Pause 500ms entre les messages du même serveur
+            await new Promise(r => setTimeout(r, 500));
           }
         } catch (err) {
           console.error(`Error in channel ${ch.id}:`, err);
@@ -107,14 +107,5 @@ http.createServer((req, res) => {
 }).listen(PORT, () => {
   console.log(`HTTP server listening on port ${PORT}`);
 });
-
-// === KEEP ALIVE ===
-setInterval(() => {
-  http.get(`http://localhost:${PORT}`, res => {
-    console.log(`Pinged self to stay awake. Status: ${res.statusCode}`);
-  }).on("error", err => {
-    console.error("Error pinging self:", err);
-  });
-}, 13 * 60 * 1000); // 13 minutes
 
 client.login(TOKEN);
