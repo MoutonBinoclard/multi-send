@@ -36,7 +36,6 @@ const commands = [
         .setDescription("The message to send")
         .setRequired(true)
     )
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(cmd => cmd.toJSON());
 
 // Deploy commands (optional)
