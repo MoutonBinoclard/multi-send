@@ -332,7 +332,7 @@ client.on("interactionCreate", async (interaction) => {
           output.push(`- Unknown server (${guildId})`);
           continue;
         }
-        const guildName = guildConfig.nom_serv || guild.name || guildId;
+  const guildName = guild.name || guildConfig.nom_serv || guildId;
 
         // Helper to get channel/role info
         async function getChannelRole(type, label) {
