@@ -62,6 +62,10 @@ const commands = [
         .setDescription("The message to send")
         .setRequired(true)
     )
+  ,
+  new SlashCommandBuilder()
+    .setName("channels")
+    .setDescription("List all announce, start, and match id channels and their pinged roles")
 ].map(cmd => cmd.toJSON());
 
 // Deploy commands (optional)
@@ -131,6 +135,73 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.editReply({
       content: `Message sent to ${successCount} channel(s). ${errorCount > 0 ? `${errorCount} error(s) occurred.` : ''}`
     });
+  }
+
+  // Helper to get role name from guild and role id
+  async function getRoleName(guild, roleId) {
+    if (!roleId) return 'None';
+    try {
+      const role = await guild.roles.fetch(roleId);
+      return role ? role.name : `Unknown (${roleId})`;
+    } catch {
+      return `Unknown (${roleId})`;
+    }
+  }
+
+  // /channels command implementation
+  if (interaction.commandName === "channels") {
+    await interaction.deferReply({ ephemeral: true });
+    // Read all config files
+    let announce, start, matchid;
+    try {
+      announce = JSON.parse(fs.readFileSync("announce.json", "utf8"));
+      start = JSON.parse(fs.readFileSync("start.json", "utf8"));
+      matchid = JSON.parse(fs.readFileSync("matchid.json", "utf8"));
+    } catch (err) {
+      return interaction.editReply({ content: "❌ Error reading config files." });
+    }
+
+    // Collect all guild IDs
+    const allGuildIds = new Set([
+      ...Object.keys(announce),
+      ...Object.keys(start),
+      ...Object.keys(matchid)
+    ]);
+
+    let output = [];
+    for (const guildId of allGuildIds) {
+      let guild;
+      try {
+        guild = await client.guilds.fetch(guildId);
+      } catch {
+        output.push(`- Unknown server (${guildId})`);
+        continue;
+      }
+      const guildName = guild.name;
+
+      // Helper to get channel/role info
+      async function getChannelRole(config, label) {
+        if (!config[guildId] || config[guildId].length === 0) return `    - ${label} : None`;
+        const ch = config[guildId][0];
+        let roleName = 'None';
+        if (ch.ping && ch.ping.length > 0) {
+          // Only show first role if multiple
+          roleName = await getRoleName(guild, ch.ping[0]);
+        }
+        return `    - ${label} : ${roleName}`;
+      }
+
+      // Build lines for this guild
+      let lines = [`- ${guildName}`];
+      lines.push(await getChannelRole(announce, 'Announce'));
+      lines.push(await getChannelRole(start, 'Start'));
+      lines.push(await getChannelRole(matchid, 'Match id'));
+      output.push(lines.join('\n'));
+    }
+    const msg = output.join('\n\n');
+    // Send as a temp message (ephemeral, can be rejected by closing)
+    await interaction.editReply({ content: msg });
+    return;
   }
 
   if (interaction.commandName === "matchid") {
