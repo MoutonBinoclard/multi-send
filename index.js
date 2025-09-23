@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require("discord.js");
 const fs = require("fs");
 const http = require("http");
 
@@ -27,6 +27,10 @@ try {
   console.error("Error reading matchid.json:", err);
   channelsConfig = {};
 }
+
+// Storage for active polls and button clicks
+const activePolls = new Map(); // pollId -> { messageData, clickedUsers: Set, sentMessages: Map(channelId -> message) }
+let pollCounter = 0;
 
 // Slash commands
 const commands = [
@@ -68,7 +72,20 @@ const commands = [
     .setDescription("List all announce, start, and match id channels and their pinged roles"),
   new SlashCommandBuilder()
     .setName("users")
-    .setDescription("List all authorized users")
+    .setDescription("List all authorized users"),
+  new SlashCommandBuilder()
+    .setName("ask")
+    .setDescription("Send an interactive question with a button to all announce channels")
+    .addStringOption(opt =>
+      opt.setName("message")
+        .setDescription("The question/message to send")
+        .setRequired(true)
+    )
+    .addStringOption(opt =>
+      opt.setName("button_text")
+        .setDescription("The text for the button")
+        .setRequired(true)
+    )
 ].map(cmd => cmd.toJSON());
 
 // Deploy commands (optional)
@@ -85,6 +102,53 @@ const rest = new REST({ version: "10" }).setToken(TOKEN);
 
 // Interaction handling
 client.on("interactionCreate", async (interaction) => {
+  if (interaction.isChatInputCommand()) {
+    if (!allowedUserIds.includes(interaction.user.id)) {
+      return interaction.reply({ content: "❌ You are not authorized to use this command.", ephemeral: true });
+    }
+  }
+
+  // Handle button interactions
+  if (interaction.isButton()) {
+    const pollId = interaction.customId;
+    const poll = activePolls.get(pollId);
+    
+    if (!poll) {
+      return interaction.reply({ content: "❌ This poll is no longer active.", ephemeral: true });
+    }
+
+    const userId = interaction.user.id;
+    
+    // Check if user already clicked
+    if (poll.clickedUsers.has(userId)) {
+      return interaction.reply({ content: "❌ You have already responded to this poll.", ephemeral: true });
+    }
+
+    // Add user to clicked list
+    poll.clickedUsers.add(userId);
+    
+    // Update all messages across all servers
+    const clickCount = poll.clickedUsers.size;
+    const newContent = `${poll.messageData.message} (${clickCount} people clicked)`;
+    const newButton = new ButtonBuilder()
+      .setCustomId(pollId)
+      .setLabel(`${poll.messageData.buttonText} (${clickCount})`)
+      .setStyle(ButtonStyle.Primary);
+    const newRow = new ActionRowBuilder().addComponents(newButton);
+
+    // Update all sent messages
+    for (const [channelId, message] of poll.sentMessages) {
+      try {
+        await message.edit({ content: newContent, components: [newRow] });
+      } catch (err) {
+        console.error(`Error updating message in channel ${channelId}:`, err);
+      }
+    }
+
+    await interaction.reply({ content: "✅ Your response has been recorded!", ephemeral: true });
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   if (!allowedUserIds.includes(interaction.user.id)) {
@@ -214,6 +278,86 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.deferReply({ ephemeral: true });
     const userList = allowedUsers.map(user => `- <@${user.id}>`).join('\n');
     await interaction.editReply({ content: userList });
+    return;
+  }
+
+  // /ask command implementation
+  if (interaction.commandName === "ask") {
+    await interaction.deferReply({ ephemeral: true });
+    const message = interaction.options.getString("message");
+    const buttonText = interaction.options.getString("button_text");
+    
+    // Read announce.json
+    let announceConfig = {};
+    try {
+      const data = fs.readFileSync("announce.json", "utf8");
+      announceConfig = JSON.parse(data);
+    } catch (err) {
+      return interaction.editReply({ content: "❌ Error reading announce.json" });
+    }
+
+    // Create unique poll ID
+    pollCounter++;
+    const pollId = `poll_${pollCounter}_${Date.now()}`;
+    
+    // Create poll data
+    const pollData = {
+      messageData: { message, buttonText },
+      clickedUsers: new Set(),
+      sentMessages: new Map()
+    };
+    
+    // Create button
+    const button = new ButtonBuilder()
+      .setCustomId(pollId)
+      .setLabel(`${buttonText} (0)`)
+      .setStyle(ButtonStyle.Primary);
+    const row = new ActionRowBuilder().addComponents(button);
+    
+    // Get user info for "from" line
+    const userObj = allowedUsers.find(u => u.id === interaction.user.id);
+    const trueName = userObj && userObj.true_name ? userObj.true_name : "unknown";
+    const fromLine = `-# _from <@${interaction.user.id}> (${trueName})_`;
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    // Send to all announce channels
+    for (const [guildId, channels] of Object.entries(announceConfig)) {
+      const sentChannels = new Set();
+      for (const ch of channels) {
+        if (sentChannels.has(ch.id)) continue;
+        sentChannels.add(ch.id);
+        try {
+          const channel = await client.channels.fetch(ch.id);
+          if (channel && channel.isTextBased()) {
+            let content;
+            if (ch.ping && ch.ping.length > 0) {
+              let pings = Array.isArray(ch.ping)
+                ? ch.ping.map(id => `<@&${id}>`).join(' ')
+                : (ch.ping ? `<@&${ch.ping}>` : '');
+              content = `${fromLine}\n${pings}\n${message} (0 people clicked)`;
+            } else {
+              content = `${fromLine}\n${message} (0 people clicked)`;
+            }
+            const sentMessage = await channel.send({ content, components: [row] });
+            pollData.sentMessages.set(ch.id, sentMessage);
+            successCount++;
+            await new Promise(r => setTimeout(r, 500));
+          }
+        } catch (err) {
+          console.error(`Error in channel ${ch.id}:`, err);
+          errorCount++;
+        }
+      }
+    }
+    
+    // Store poll data
+    activePolls.set(pollId, pollData);
+    
+    await interaction.editReply({
+      content: `Poll sent to ${successCount} channel(s). ${errorCount > 0 ? `${errorCount} error(s) occurred.` : ''}`
+    });
     return;
   }
 
