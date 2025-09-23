@@ -65,7 +65,10 @@ const commands = [
   ,
   new SlashCommandBuilder()
     .setName("channels")
-    .setDescription("List all announce, start, and match id channels and their pinged roles")
+    .setDescription("List all announce, start, and match id channels and their pinged roles"),
+  new SlashCommandBuilder()
+    .setName("users")
+    .setDescription("List all authorized users")
 ].map(cmd => cmd.toJSON());
 
 // Deploy commands (optional)
@@ -203,6 +206,14 @@ client.on("interactionCreate", async (interaction) => {
     const msg = output.join('\n\n');
     // Send as a temp message (ephemeral, can be rejected by closing)
     await interaction.editReply({ content: msg });
+    return;
+  }
+
+  // /users command implementation
+  if (interaction.commandName === "users") {
+    await interaction.deferReply({ ephemeral: true });
+    const userList = allowedUsers.map(user => `- <@${user.id}>`).join('\n');
+    await interaction.editReply({ content: userList });
     return;
   }
 
