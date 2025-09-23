@@ -106,7 +106,7 @@ client.on("interactionCreate", async (interaction) => {
     let errorCount = 0;
     const userObj = allowedUsers.find(u => u.id === interaction.user.id);
     const trueName = userObj && userObj.true_name ? userObj.true_name : "unknown";
-    const fromLine = `-# _from <@${interaction.user.id}> (${trueName})_`;
+    const fromLine = `-# _from <@${interaction.user.id}>_`;
 
     for (const [guildId, channels] of Object.entries(configData)) {
       const sentChannels = new Set();
