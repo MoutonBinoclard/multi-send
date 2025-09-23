@@ -122,7 +122,33 @@ client.on("interactionCreate", async (interaction) => {
 
   // Handle button interactions
   if (interaction.isButton()) {
-    const pollId = interaction.customId;
+    const customId = interaction.customId;
+    
+    // Handle "Show who clicked" button
+    if (customId.startsWith('show_')) {
+      const pollId = customId.replace('show_', '');
+      const poll = activePolls.get(pollId);
+      
+      if (!poll) {
+        return interaction.reply({ content: "❌ This poll is no longer active.", ephemeral: true });
+      }
+
+      if (poll.clickedUsers.size === 0) {
+        return interaction.reply({ content: "No one has clicked yet.", ephemeral: true });
+      }
+
+      // Get usernames of clicked users
+      const userMentions = Array.from(poll.clickedUsers).map(userId => `<@${userId}>`);
+      const userList = userMentions.join('\n');
+      
+      return interaction.reply({ 
+        content: `**Users who clicked:**\n${userList}`, 
+        ephemeral: true 
+      });
+    }
+
+    // Handle main poll button
+    const pollId = customId;
     const poll = activePolls.get(pollId);
     
     if (!poll) {
@@ -142,11 +168,17 @@ client.on("interactionCreate", async (interaction) => {
     // Update all messages across all servers
     const clickCount = poll.clickedUsers.size;
     const newContent = `${poll.messageData.message}\n(${clickCount} clicked)`;
-    const newButton = new ButtonBuilder()
+    const newMainButton = new ButtonBuilder()
       .setCustomId(pollId)
       .setLabel(poll.messageData.buttonText)
       .setStyle(ButtonStyle.Primary);
-    const newRow = new ActionRowBuilder().addComponents(newButton);
+    
+    const newShowButton = new ButtonBuilder()
+      .setCustomId(`show_${pollId}`)
+      .setLabel("Show who clicked")
+      .setStyle(ButtonStyle.Secondary);
+    
+    const newRow = new ActionRowBuilder().addComponents(newMainButton, newShowButton);
 
     // Update all sent messages
     for (const [channelId, message] of poll.sentMessages) {
@@ -340,17 +372,23 @@ client.on("interactionCreate", async (interaction) => {
       sentMessages: new Map()
     };
     
-    // Create button
-    const button = new ButtonBuilder()
+    // Create buttons
+    const mainButton = new ButtonBuilder()
       .setCustomId(pollId)
       .setLabel(buttonText)
       .setStyle(ButtonStyle.Primary);
-    const row = new ActionRowBuilder().addComponents(button);
+    
+    const showButton = new ButtonBuilder()
+      .setCustomId(`show_${pollId}`)
+      .setLabel("Show who clicked")
+      .setStyle(ButtonStyle.Secondary);
+    
+    const row = new ActionRowBuilder().addComponents(mainButton, showButton);
     
     // Get user info for "from" line
     const userObj = allowedUsers.find(u => u.id === interaction.user.id);
     const trueName = userObj && userObj.true_name ? userObj.true_name : "unknown";
-    const fromLine = `-# _from <@${interaction.user.id}> (${trueName})_`;
+    const fromLine = `-# _from <@${interaction.user.id}>_`;
     
     let successCount = 0;
     let errorCount = 0;
@@ -372,26 +410,33 @@ client.on("interactionCreate", async (interaction) => {
           const channel = await client.channels.fetch(ch.id);
           if (channel && channel.isTextBased()) {
             let content;
-            if (ch.ping && ch.ping.length > 0 && !noPing) {
-              let pings = Array.isArray(ch.ping)
-                ? ch.ping.map(id => `<@&${id}>`).join(' ')
-                : (ch.ping ? `<@&${ch.ping}>` : '');
-              content = `${fromLine}\n${pings}\n${message}\n(0 clicked)`;
-            } else if (ch.ping && ch.ping.length > 0 && noPing) {
-              // Get role names instead of pinging
-              const rolePromises = ch.ping.map(async (roleId) => {
-                try {
-                  const role = await guild.roles.fetch(roleId);
-                  return role ? role.name : `Unknown (${roleId})`;
-                } catch {
-                  return `Unknown (${roleId})`;
-                }
-              });
-              const roleNames = await Promise.all(rolePromises);
-              const roleText = `(Ping roles: ${roleNames.join(', ')})`;
-              content = `${fromLine}\n${roleText}\n${message}\n(0 clicked)`;
+            if (noPing) {
+              // Show role names instead of pinging
+              if (ch.ping && ch.ping.length > 0) {
+                const rolePromises = ch.ping.map(async (roleId) => {
+                  try {
+                    const role = await guild.roles.fetch(roleId);
+                    return role ? role.name : `Unknown (${roleId})`;
+                  } catch {
+                    return `Unknown (${roleId})`;
+                  }
+                });
+                const roleNames = await Promise.all(rolePromises);
+                const roleText = `(Ping roles: ${roleNames.join(', ')})`;
+                content = `${fromLine}\n${roleText}\n${message}\n(0 clicked)`;
+              } else {
+                content = `${fromLine}\n${message}\n(0 clicked)`;
+              }
             } else {
-              content = `${fromLine}\n${message}\n(0 clicked)`;
+              // Normal behavior - ping the roles
+              if (ch.ping && ch.ping.length > 0) {
+                let pings = Array.isArray(ch.ping)
+                  ? ch.ping.map(id => `<@&${id}>`).join(' ')
+                  : `<@&${ch.ping}>`;
+                content = `${fromLine}\n${pings}\n${message}\n(0 clicked)`;
+              } else {
+                content = `${fromLine}\n${message}\n(0 clicked)`;
+              }
             }
             const sentMessage = await channel.send({ content, components: [row] });
             pollData.sentMessages.set(ch.id, sentMessage);
