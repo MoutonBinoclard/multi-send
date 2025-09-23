@@ -18,13 +18,13 @@ try {
   console.error("Error reading config.json:", err);
 }
 
-// Load match-id.json
+// Load channels.json (unified config)
 let channelsConfig = {};
 try {
-  const data = fs.readFileSync("matchid.json", "utf8");
+  const data = fs.readFileSync("channels.json", "utf8");
   channelsConfig = JSON.parse(data);
 } catch (err) {
-  console.error("Error reading matchid.json:", err);
+  console.error("Error reading channels.json:", err);
   channelsConfig = {};
 }
 
@@ -179,14 +179,7 @@ client.on("interactionCreate", async (interaction) => {
     
     const newRow = new ActionRowBuilder().addComponents(newMainButton, newShowButton);
 
-    // Read announce.json to get the original ping configuration
-    let announceConfig = {};
-    try {
-      const data = fs.readFileSync("announce.json", "utf8");
-      announceConfig = JSON.parse(data);
-    } catch (err) {
-      console.error("Error reading announce.json:", err);
-    }
+      // No longer need to read announce.json, use channelsConfig if needed
 
     // Update all sent messages with proper ping/role format
     for (const [channelId, message] of poll.sentMessages) {
@@ -326,63 +319,46 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 
-  // /channels command implementation
-  if (interaction.commandName === "channels") {
-    await interaction.deferReply({ ephemeral: true });
-    // Read all config files
-    let announce, start, matchid;
-    try {
-      announce = JSON.parse(fs.readFileSync("announce.json", "utf8"));
-      start = JSON.parse(fs.readFileSync("start.json", "utf8"));
-      matchid = JSON.parse(fs.readFileSync("matchid.json", "utf8"));
-    } catch (err) {
-      return interaction.editReply({ content: "❌ Error reading config files." });
-    }
-
-    // Collect all guild IDs
-    const allGuildIds = new Set([
-      ...Object.keys(announce),
-      ...Object.keys(start),
-      ...Object.keys(matchid)
-    ]);
-
-    let output = [];
-    for (const guildId of allGuildIds) {
-      let guild;
-      try {
-        guild = await client.guilds.fetch(guildId);
-      } catch {
-        output.push(`- Unknown server (${guildId})`);
-        continue;
-      }
-      const guildName = guild.name;
-
-      // Helper to get channel/role info
-      async function getChannelRole(config, label) {
-        if (!config[guildId] || config[guildId].length === 0) return `    - ${label} : None`;
-        const ch = config[guildId][0];
-        let roleNames = 'None';
-        if (ch.ping && ch.ping.length > 0) {
-          // Get all role names if multiple
-          const rolePromises = ch.ping.map(roleId => getRoleName(guild, roleId));
-          const roles = await Promise.all(rolePromises);
-          roleNames = roles.join(', ');
+    // /channels command implementation
+    if (interaction.commandName === "channels") {
+      await interaction.deferReply({ ephemeral: true });
+      // Use channelsConfig (channels.json)
+      let output = [];
+      for (const [guildId, guildConfig] of Object.entries(channelsConfig)) {
+        let guild;
+        try {
+          guild = await client.guilds.fetch(guildId);
+        } catch {
+          output.push(`- Unknown server (${guildId})`);
+          continue;
         }
-        return `    - ${label} : ${roleNames}`;
-      }
+        const guildName = guildConfig.nom_serv || guild.name || guildId;
 
-      // Build lines for this guild
-      let lines = [`- ${guildName}`];
-      lines.push(await getChannelRole(announce, 'Announce'));
-      lines.push(await getChannelRole(start, 'Start'));
-      lines.push(await getChannelRole(matchid, 'Match id'));
-      output.push(lines.join('\n'));
+        // Helper to get channel/role info
+        async function getChannelRole(type, label) {
+          const arr = guildConfig[type] || [];
+          if (arr.length === 0) return `    - ${label} : None`;
+          const ch = arr[0];
+          let roleNames = 'None';
+          if (ch.ping && ch.ping.length > 0) {
+            const rolePromises = ch.ping.map(roleId => getRoleName(guild, roleId));
+            const roles = await Promise.all(rolePromises);
+            roleNames = roles.join(', ');
+          }
+          return `    - ${label} : ${roleNames}`;
+        }
+
+        // Build lines for this guild
+        let lines = [`- ${guildName}`];
+        lines.push(await getChannelRole('announce', 'Announce'));
+        lines.push(await getChannelRole('start', 'Start'));
+        lines.push(await getChannelRole('matchid', 'Match id'));
+        output.push(lines.join('\n'));
+      }
+      const msg = output.join('\n\n');
+      await interaction.editReply({ content: msg });
+      return;
     }
-    const msg = output.join('\n\n');
-    // Send as a temp message (ephemeral, can be rejected by closing)
-    await interaction.editReply({ content: msg });
-    return;
-  }
 
   // /users command implementation
   if (interaction.commandName === "users") {
@@ -392,121 +368,97 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  // /ask command implementation
-  if (interaction.commandName === "ask") {
-    await interaction.deferReply({ ephemeral: true });
-    const message = interaction.options.getString("message");
-    const buttonText = interaction.options.getString("button_text");
-    const noPing = interaction.options.getBoolean("no_ping") || false;
-    
-    // Read announce.json
-    let announceConfig = {};
-    try {
-      const data = fs.readFileSync("announce.json", "utf8");
-      announceConfig = JSON.parse(data);
-    } catch (err) {
-      return interaction.editReply({ content: "❌ Error reading announce.json" });
-    }
+    // /ask command implementation
+    if (interaction.commandName === "ask") {
+      await interaction.deferReply({ ephemeral: true });
+      const message = interaction.options.getString("message");
+      const buttonText = interaction.options.getString("button_text");
+      const noPing = interaction.options.getBoolean("no_ping") || false;
 
-    // Create unique poll ID
-    pollCounter++;
-    const pollId = `poll_${pollCounter}_${Date.now()}`;
-    
-    // Create poll data
-    const pollData = {
-      messageData: { message, buttonText },
-      clickedUsers: new Set(),
-      sentMessages: new Map(),
-      noPing: noPing,  // Store the noPing setting
-      senderId: interaction.user.id  // Store the original sender
-    };
-    
-    // Create buttons
-    const mainButton = new ButtonBuilder()
-      .setCustomId(pollId)
-      .setLabel(buttonText)
-      .setStyle(ButtonStyle.Primary);
-    
-    const showButton = new ButtonBuilder()
-      .setCustomId(`show_${pollId}`)
-      .setLabel("Show who clicked")
-      .setStyle(ButtonStyle.Secondary);
-    
-    const row = new ActionRowBuilder().addComponents(mainButton, showButton);
-    
-    // Get user info for "from" line
-    const userObj = allowedUsers.find(u => u.id === interaction.user.id);
-    const trueName = userObj && userObj.true_name ? userObj.true_name : "unknown";
-    const fromLine = `-# _from <@${interaction.user.id}>_`;
-    
-    let successCount = 0;
-    let errorCount = 0;
-    
-    // Send to all announce channels
-    for (const [guildId, channels] of Object.entries(announceConfig)) {
-      const sentChannels = new Set();
-      let guild;
-      try {
-        guild = await client.guilds.fetch(guildId);
-      } catch {
-        continue;
-      }
+      // Use channelsConfig for announce channels
+      let successCount = 0;
+      let errorCount = 0;
+      pollCounter++;
+      const pollId = `poll_${pollCounter}_${Date.now()}`;
+      const pollData = {
+        messageData: { message, buttonText },
+        clickedUsers: new Set(),
+        sentMessages: new Map(),
+        noPing: noPing,
+        senderId: interaction.user.id
+      };
+      const mainButton = new ButtonBuilder()
+        .setCustomId(pollId)
+        .setLabel(buttonText)
+        .setStyle(ButtonStyle.Primary);
+      const showButton = new ButtonBuilder()
+        .setCustomId(`show_${pollId}`)
+        .setLabel("Show who clicked")
+        .setStyle(ButtonStyle.Secondary);
+      const row = new ActionRowBuilder().addComponents(mainButton, showButton);
+      const userObj = allowedUsers.find(u => u.id === interaction.user.id);
+      const trueName = userObj && userObj.true_name ? userObj.true_name : "unknown";
+      const fromLine = `-# _from <@${interaction.user.id}>_`;
 
-      for (const ch of channels) {
-        if (sentChannels.has(ch.id)) continue;
-        sentChannels.add(ch.id);
+      for (const [guildId, guildConfig] of Object.entries(channelsConfig)) {
+        const sentChannels = new Set();
+        let guild;
         try {
-          const channel = await client.channels.fetch(ch.id);
-          if (channel && channel.isTextBased()) {
-            let content;
-            if (noPing) {
-              // Show role names instead of pinging
-              if (ch.ping && ch.ping.length > 0) {
-                const rolePromises = ch.ping.map(async (roleId) => {
-                  try {
-                    const role = await guild.roles.fetch(roleId);
-                    return role ? role.name : `Unknown (${roleId})`;
-                  } catch {
-                    return `Unknown (${roleId})`;
-                  }
-                });
-                const roleNames = await Promise.all(rolePromises);
-                const roleText = `(Ping roles: ${roleNames.join(', ')})`;
-                content = `${fromLine}\n${roleText}\n${message}\n(0 clicked)`;
+          guild = await client.guilds.fetch(guildId);
+        } catch {
+          continue;
+        }
+        const channels = guildConfig.announce || [];
+        for (const ch of channels) {
+          if (sentChannels.has(ch.id)) continue;
+          sentChannels.add(ch.id);
+          try {
+            const channel = await client.channels.fetch(ch.id);
+            if (channel && channel.isTextBased()) {
+              let content;
+              if (noPing) {
+                if (ch.ping && ch.ping.length > 0) {
+                  const rolePromises = ch.ping.map(async (roleId) => {
+                    try {
+                      const role = await guild.roles.fetch(roleId);
+                      return role ? role.name : `Unknown (${roleId})`;
+                    } catch {
+                      return `Unknown (${roleId})`;
+                    }
+                  });
+                  const roleNames = await Promise.all(rolePromises);
+                  const roleText = `(Ping roles: ${roleNames.join(', ')})`;
+                  content = `${fromLine}\n${roleText}\n${message}\n(0 clicked)`;
+                } else {
+                  content = `${fromLine}\n${message}\n(0 clicked)`;
+                }
               } else {
-                content = `${fromLine}\n${message}\n(0 clicked)`;
+                if (ch.ping && ch.ping.length > 0) {
+                  let pings = Array.isArray(ch.ping)
+                    ? ch.ping.map(id => `<@&${id}>`).join(' ')
+                    : `<@&${ch.ping}>`;
+                  content = `${fromLine}\n${pings}\n${message}\n(0 clicked)`;
+                } else {
+                  content = `${fromLine}\n${message}\n(0 clicked)`;
+                }
               }
-            } else {
-              // Normal behavior - ping the roles
-              if (ch.ping && ch.ping.length > 0) {
-                let pings = Array.isArray(ch.ping)
-                  ? ch.ping.map(id => `<@&${id}>`).join(' ')
-                  : `<@&${ch.ping}>`;
-                content = `${fromLine}\n${pings}\n${message}\n(0 clicked)`;
-              } else {
-                content = `${fromLine}\n${message}\n(0 clicked)`;
-              }
+              const sentMessage = await channel.send({ content, components: [row] });
+              pollData.sentMessages.set(ch.id, sentMessage);
+              successCount++;
+              await new Promise(r => setTimeout(r, 500));
             }
-            const sentMessage = await channel.send({ content, components: [row] });
-            pollData.sentMessages.set(ch.id, sentMessage);
-            successCount++;
-            await new Promise(r => setTimeout(r, 500));
+          } catch (err) {
+            console.error(`Error in channel ${ch.id}:`, err);
+            errorCount++;
           }
-        } catch (err) {
-          console.error(`Error in channel ${ch.id}:`, err);
-          errorCount++;
         }
       }
+      activePolls.set(pollId, pollData);
+      await interaction.editReply({
+        content: `Poll sent to ${successCount} channel(s). ${errorCount > 0 ? `${errorCount} error(s) occurred.` : ''}`
+      });
+      return;
     }
-    
-    // Store poll data
-    activePolls.set(pollId, pollData);
-    
-    await interaction.editReply({
-      content: `Poll sent to ${successCount} channel(s). ${errorCount > 0 ? `${errorCount} error(s) occurred.` : ''}`
-    });
-    return;
-  }
 
   if (interaction.commandName === "matchid") {
     await interaction.deferReply({ ephemeral: true });
