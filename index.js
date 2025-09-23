@@ -239,24 +239,16 @@ client.on("interactionCreate", async (interaction) => {
     return interaction.reply({ content: "❌ You are not authorized to use this command.", ephemeral: true });
   }
 
-  // Helper to send to a config file (match-id.json or announce.json)
-  async function sendToChannels(configFile, message, withPing = true, interaction, noPing = false) {
-    let configData = {};
-    try {
-      const data = fs.readFileSync(configFile, "utf8");
-      configData = JSON.parse(data);
-    } catch (err) {
-      console.error(`Error reading ${configFile}:`, err);
-      return interaction.editReply({ content: `❌ Error reading ${configFile}` });
-    }
-
+  // Helper to send to channels using the unified channels.json structure
+  async function sendToChannelType(channelType, message, withPing = true, interaction, noPing = false) {
     let successCount = 0;
     let errorCount = 0;
     const userObj = allowedUsers.find(u => u.id === interaction.user.id);
     const trueName = userObj && userObj.true_name ? userObj.true_name : "unknown";
     const fromLine = `-# _from <@${interaction.user.id}>_`;
 
-    for (const [guildId, channels] of Object.entries(configData)) {
+    for (const [guildId, guildConfig] of Object.entries(channelsConfig)) {
+      const channels = guildConfig[channelType] || [];
       const sentChannels = new Set();
       let guild;
       try {
@@ -464,17 +456,17 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.deferReply({ ephemeral: true });
     const message = interaction.options.getString("message");
     const noPing = interaction.options.getBoolean("no_ping") || false;
-    await sendToChannels("matchid.json", message, true, interaction, noPing);
+    await sendToChannelType("matchid", message, true, interaction, noPing);
   } else if (interaction.commandName === "announce") {
     await interaction.deferReply({ ephemeral: true });
     const message = interaction.options.getString("message");
     const noPing = interaction.options.getBoolean("no_ping") || false;
-    await sendToChannels("announce.json", message, true, interaction, noPing);
+    await sendToChannelType("announce", message, true, interaction, noPing);
   } else if (interaction.commandName === "start") {
     await interaction.deferReply({ ephemeral: true });
     const message = interaction.options.getString("message");
     const noPing = interaction.options.getBoolean("no_ping") || false;
-    await sendToChannels("start.json", message, true, interaction, noPing);
+    await sendToChannelType("start", message, true, interaction, noPing);
   }
 });
 
