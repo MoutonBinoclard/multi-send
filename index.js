@@ -187,8 +187,9 @@ client.on("interactionCreate", async (interaction) => {
         // Find the guild and channel config for this message
         let guild;
         let channelConfig;
-        for (const [guildId, channels] of Object.entries(announceConfig)) {
-          const ch = channels.find(c => c.id === channelId);
+        for (const [guildId, guildConfig] of Object.entries(channelsConfig)) {
+          const announceChannels = guildConfig.announce || [];
+          const ch = announceChannels.find(c => c.id === channelId);
           if (ch) {
             guild = await client.guilds.fetch(guildId);
             channelConfig = ch;
