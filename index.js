@@ -41,14 +41,11 @@ const commands = [
       opt.setName("message")
         .setDescription("The message to send")
         .setRequired(true)
-    ),
-  new SlashCommandBuilder()
-    .setName("no-ping")
-    .setDescription("Send a message to all configured match channels without pinging any roles")
-    .addStringOption(opt =>
-      opt.setName("message")
-        .setDescription("The message to send")
-        .setRequired(true)
+    )
+    .addBooleanOption(opt =>
+      opt.setName("no_ping")
+        .setDescription("Don't ping roles, show role names instead")
+        .setRequired(false)
     ),
   new SlashCommandBuilder()
     .setName("announce")
@@ -57,6 +54,11 @@ const commands = [
       opt.setName("message")
         .setDescription("The message to send")
         .setRequired(true)
+    )
+    .addBooleanOption(opt =>
+      opt.setName("no_ping")
+        .setDescription("Don't ping roles, show role names instead")
+        .setRequired(false)
     ),
   new SlashCommandBuilder()
     .setName("start")
@@ -65,6 +67,11 @@ const commands = [
       opt.setName("message")
         .setDescription("The message to send")
         .setRequired(true)
+    )
+    .addBooleanOption(opt =>
+      opt.setName("no_ping")
+        .setDescription("Don't ping roles, show role names instead")
+        .setRequired(false)
     )
   ,
   new SlashCommandBuilder()
@@ -85,6 +92,11 @@ const commands = [
       opt.setName("button_text")
         .setDescription("The text for the button")
         .setRequired(true)
+    )
+    .addBooleanOption(opt =>
+      opt.setName("no_ping")
+        .setDescription("Don't ping roles, show role names instead")
+        .setRequired(false)
     )
 ].map(cmd => cmd.toJSON());
 
@@ -129,7 +141,7 @@ client.on("interactionCreate", async (interaction) => {
     
     // Update all messages across all servers
     const clickCount = poll.clickedUsers.size;
-    const newContent = `${poll.messageData.message} (${clickCount} people clicked)`;
+    const newContent = `${poll.messageData.message}\n(${clickCount} clicked)`;
     const newButton = new ButtonBuilder()
       .setCustomId(pollId)
       .setLabel(poll.messageData.buttonText)
@@ -156,7 +168,7 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   // Helper to send to a config file (match-id.json or announce.json)
-  async function sendToChannels(configFile, message, withPing = true, interaction) {
+  async function sendToChannels(configFile, message, withPing = true, interaction, noPing = false) {
     let configData = {};
     try {
       const data = fs.readFileSync(configFile, "utf8");
@@ -174,6 +186,13 @@ client.on("interactionCreate", async (interaction) => {
 
     for (const [guildId, channels] of Object.entries(configData)) {
       const sentChannels = new Set();
+      let guild;
+      try {
+        guild = await client.guilds.fetch(guildId);
+      } catch {
+        continue;
+      }
+
       for (const ch of channels) {
         if (sentChannels.has(ch.id)) continue;
         sentChannels.add(ch.id);
@@ -181,11 +200,24 @@ client.on("interactionCreate", async (interaction) => {
           const channel = await client.channels.fetch(ch.id);
           if (channel && channel.isTextBased()) {
             let content;
-            if (withPing && ch.ping) {
+            if (withPing && ch.ping && ch.ping.length > 0 && !noPing) {
               let pings = Array.isArray(ch.ping)
                 ? ch.ping.map(id => `<@&${id}>`).join(' ')
                 : (ch.ping ? `<@&${ch.ping}>` : '');
               content = `${fromLine}\n${pings}\n${message}`;
+            } else if (ch.ping && ch.ping.length > 0 && noPing) {
+              // Get role names instead of pinging
+              const rolePromises = ch.ping.map(async (roleId) => {
+                try {
+                  const role = await guild.roles.fetch(roleId);
+                  return role ? role.name : `Unknown (${roleId})`;
+                } catch {
+                  return `Unknown (${roleId})`;
+                }
+              });
+              const roleNames = await Promise.all(rolePromises);
+              const roleText = `(Ping roles: ${roleNames.join(', ')})`;
+              content = `${fromLine}\n${roleText}\n${message}`;
             } else {
               content = `${fromLine}\n${message}`;
             }
@@ -286,6 +318,7 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.deferReply({ ephemeral: true });
     const message = interaction.options.getString("message");
     const buttonText = interaction.options.getString("button_text");
+    const noPing = interaction.options.getBoolean("no_ping") || false;
     
     // Read announce.json
     let announceConfig = {};
@@ -325,6 +358,13 @@ client.on("interactionCreate", async (interaction) => {
     // Send to all announce channels
     for (const [guildId, channels] of Object.entries(announceConfig)) {
       const sentChannels = new Set();
+      let guild;
+      try {
+        guild = await client.guilds.fetch(guildId);
+      } catch {
+        continue;
+      }
+
       for (const ch of channels) {
         if (sentChannels.has(ch.id)) continue;
         sentChannels.add(ch.id);
@@ -332,13 +372,26 @@ client.on("interactionCreate", async (interaction) => {
           const channel = await client.channels.fetch(ch.id);
           if (channel && channel.isTextBased()) {
             let content;
-            if (ch.ping && ch.ping.length > 0) {
+            if (ch.ping && ch.ping.length > 0 && !noPing) {
               let pings = Array.isArray(ch.ping)
                 ? ch.ping.map(id => `<@&${id}>`).join(' ')
                 : (ch.ping ? `<@&${ch.ping}>` : '');
-              content = `${fromLine}\n${pings}\n${message} (0 people clicked)`;
+              content = `${fromLine}\n${pings}\n${message}\n(0 clicked)`;
+            } else if (ch.ping && ch.ping.length > 0 && noPing) {
+              // Get role names instead of pinging
+              const rolePromises = ch.ping.map(async (roleId) => {
+                try {
+                  const role = await guild.roles.fetch(roleId);
+                  return role ? role.name : `Unknown (${roleId})`;
+                } catch {
+                  return `Unknown (${roleId})`;
+                }
+              });
+              const roleNames = await Promise.all(rolePromises);
+              const roleText = `(Ping roles: ${roleNames.join(', ')})`;
+              content = `${fromLine}\n${roleText}\n${message}\n(0 clicked)`;
             } else {
-              content = `${fromLine}\n${message} (0 people clicked)`;
+              content = `${fromLine}\n${message}\n(0 clicked)`;
             }
             const sentMessage = await channel.send({ content, components: [row] });
             pollData.sentMessages.set(ch.id, sentMessage);
@@ -364,19 +417,18 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.commandName === "matchid") {
     await interaction.deferReply({ ephemeral: true });
     const message = interaction.options.getString("message");
-    await sendToChannels("matchid.json", message, true, interaction);
-  } else if (interaction.commandName === "no-ping") {
-    await interaction.deferReply({ ephemeral: true });
-    const message = interaction.options.getString("message");
-    await sendToChannels("matchid.json", message, false, interaction);
+    const noPing = interaction.options.getBoolean("no_ping") || false;
+    await sendToChannels("matchid.json", message, true, interaction, noPing);
   } else if (interaction.commandName === "announce") {
     await interaction.deferReply({ ephemeral: true });
     const message = interaction.options.getString("message");
-    await sendToChannels("announce.json", message, true, interaction);
+    const noPing = interaction.options.getBoolean("no_ping") || false;
+    await sendToChannels("announce.json", message, true, interaction, noPing);
   } else if (interaction.commandName === "start") {
     await interaction.deferReply({ ephemeral: true });
     const message = interaction.options.getString("message");
-    await sendToChannels("start.json", message, true, interaction);
+    const noPing = interaction.options.getBoolean("no_ping") || false;
+    await sendToChannels("start.json", message, true, interaction, noPing);
   }
 });
 
