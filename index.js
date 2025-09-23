@@ -32,6 +32,78 @@ try {
 const activePolls = new Map();
 let pollCounter = 0;
 
+// Helper functions for persistent poll storage
+function loadPolls() {
+  try {
+    const data = fs.readFileSync("polls.json", "utf8");
+    const pollsData = JSON.parse(data);
+    
+    // Convert clickedUsers arrays back to Sets and restore polls
+    for (const [pollId, pollData] of Object.entries(pollsData.polls || {})) {
+      pollData.clickedUsers = new Set(pollData.clickedUsers || []);
+      activePolls.set(pollId, pollData);
+    }
+    
+    // Restore poll counter
+    pollCounter = pollsData.pollCounter || 0;
+    
+    console.log(`Loaded ${activePolls.size} active polls from storage`);
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.error("Error loading polls.json:", err);
+    }
+    // File doesn't exist or is corrupted, start fresh
+    activePolls.clear();
+    pollCounter = 0;
+  }
+}
+
+function savePolls() {
+  try {
+    const pollsToSave = {};
+    
+    // Convert Sets to arrays for JSON serialization
+    for (const [pollId, pollData] of activePolls.entries()) {
+      pollsToSave[pollId] = {
+        ...pollData,
+        clickedUsers: Array.from(pollData.clickedUsers)
+      };
+    }
+    
+    const data = {
+      polls: pollsToSave,
+      pollCounter: pollCounter
+    };
+    
+    fs.writeFileSync("polls.json", JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error("Error saving polls.json:", err);
+  }
+}
+
+function cleanupOldPolls() {
+  const now = Date.now();
+  const oneWeekAgo = now - (7 * 24 * 60 * 60 * 1000); // 7 days in milliseconds
+  let removedCount = 0;
+  
+  for (const [pollId, pollData] of activePolls.entries()) {
+    // Extract timestamp from pollId (format: poll_${counter}_${timestamp})
+    const parts = pollId.split('_');
+    if (parts.length >= 3) {
+      const timestamp = parseInt(parts[2]);
+      if (timestamp < oneWeekAgo) {
+        activePolls.delete(pollId);
+        removedCount++;
+      }
+    }
+  }
+  
+  if (removedCount > 0) {
+    console.log(`Cleaned up ${removedCount} old polls`);
+    savePolls();
+  }
+}
+
 // Slash commands
 const commands = [
   new SlashCommandBuilder().setName("matchid").setDescription("Send a message to all configured match channels across all servers").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
@@ -65,6 +137,9 @@ client.on("interactionCreate", async (interaction) => {
     if (poll.clickedUsers.has(userId)) return interaction.reply({ content: "❌ You have already responded to this poll.", ephemeral: true });
     poll.clickedUsers.add(userId);
     const clickCount = poll.clickedUsers.size;
+
+    // Save the updated poll data
+    savePolls();
 
     const mainButton = new ButtonBuilder().setCustomId(customId).setLabel(poll.messageData.buttonText).setStyle(ButtonStyle.Primary);
     const showButton = new ButtonBuilder().setCustomId(`show_${customId}`).setLabel("Show who clicked").setStyle(ButtonStyle.Secondary);
@@ -207,6 +282,10 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
     activePolls.set(pollId, pollData);
+    
+    // Save the new poll data
+    savePolls();
+    
     await interaction.editReply({ content: `Poll sent to ${successCount} channel(s). ${errorCount ? `${errorCount} error(s) occurred.` : ''}` });
     return;
   }
@@ -223,6 +302,15 @@ client.on("interactionCreate", async (interaction) => {
 
 client.once("ready", () => {
   console.log(`🤖 Multi-send bot connected as ${client.user.tag}`);
+  
+  // Load existing polls from storage
+  loadPolls();
+  
+  // Clean up old polls
+  cleanupOldPolls();
+  
+  // Set up periodic cleanup (every 24 hours)
+  setInterval(cleanupOldPolls, 24 * 60 * 60 * 1000);
 });
 
 // HTTP server for hosting platforms
