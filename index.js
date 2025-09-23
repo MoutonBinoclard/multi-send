@@ -132,7 +132,7 @@ client.on("interactionCreate", async (interaction) => {
     const newContent = `${poll.messageData.message} (${clickCount} people clicked)`;
     const newButton = new ButtonBuilder()
       .setCustomId(pollId)
-      .setLabel(`${poll.messageData.buttonText} (${clickCount})`)
+      .setLabel(poll.messageData.buttonText)
       .setStyle(ButtonStyle.Primary);
     const newRow = new ActionRowBuilder().addComponents(newButton);
 
@@ -310,7 +310,7 @@ client.on("interactionCreate", async (interaction) => {
     // Create button
     const button = new ButtonBuilder()
       .setCustomId(pollId)
-      .setLabel(`${buttonText} (0)`)
+      .setLabel(buttonText)
       .setStyle(ButtonStyle.Primary);
     const row = new ActionRowBuilder().addComponents(button);
     
