@@ -167,7 +167,6 @@ client.on("interactionCreate", async (interaction) => {
     
     // Update all messages across all servers
     const clickCount = poll.clickedUsers.size;
-    const newContent = `${poll.messageData.message}\n(${clickCount} clicked)`;
     const newMainButton = new ButtonBuilder()
       .setCustomId(pollId)
       .setLabel(poll.messageData.buttonText)
@@ -180,9 +179,57 @@ client.on("interactionCreate", async (interaction) => {
     
     const newRow = new ActionRowBuilder().addComponents(newMainButton, newShowButton);
 
-    // Update all sent messages
+    // Read announce.json to get the original ping configuration
+    let announceConfig = {};
+    try {
+      const data = fs.readFileSync("announce.json", "utf8");
+      announceConfig = JSON.parse(data);
+    } catch (err) {
+      console.error("Error reading announce.json:", err);
+    }
+
+    // Update all sent messages with proper ping/role format
     for (const [channelId, message] of poll.sentMessages) {
       try {
+        // Find the guild and channel config for this message
+        let guild;
+        let channelConfig;
+        for (const [guildId, channels] of Object.entries(announceConfig)) {
+          const ch = channels.find(c => c.id === channelId);
+          if (ch) {
+            guild = await client.guilds.fetch(guildId);
+            channelConfig = ch;
+            break;
+          }
+        }
+
+        // Reconstruct the content with ping/role info
+        const fromLine = `-# _from <@${poll.senderId}>_`;
+        let newContent;
+
+        if (poll.noPing && channelConfig?.ping && channelConfig.ping.length > 0 && guild) {
+          // Show role names instead of pinging
+          const rolePromises = channelConfig.ping.map(async (roleId) => {
+            try {
+              const role = await guild.roles.fetch(roleId);
+              return role ? role.name : `Unknown (${roleId})`;
+            } catch {
+              return `Unknown (${roleId})`;
+            }
+          });
+          const roleNames = await Promise.all(rolePromises);
+          const roleText = `(Ping roles: ${roleNames.join(', ')})`;
+          newContent = `${fromLine}\n${roleText}\n${poll.messageData.message}\n(${clickCount} clicked)`;
+        } else if (!poll.noPing && channelConfig?.ping && channelConfig.ping.length > 0) {
+          // Normal behavior - ping the roles
+          let pings = Array.isArray(channelConfig.ping)
+            ? channelConfig.ping.map(id => `<@&${id}>`).join(' ')
+            : `<@&${channelConfig.ping}>`;
+          newContent = `${fromLine}\n${pings}\n${poll.messageData.message}\n(${clickCount} clicked)`;
+        } else {
+          newContent = `${fromLine}\n${poll.messageData.message}\n(${clickCount} clicked)`;
+        }
+
         await message.edit({ content: newContent, components: [newRow] });
       } catch (err) {
         console.error(`Error updating message in channel ${channelId}:`, err);
@@ -369,7 +416,9 @@ client.on("interactionCreate", async (interaction) => {
     const pollData = {
       messageData: { message, buttonText },
       clickedUsers: new Set(),
-      sentMessages: new Map()
+      sentMessages: new Map(),
+      noPing: noPing,  // Store the noPing setting
+      senderId: interaction.user.id  // Store the original sender
     };
     
     // Create buttons
