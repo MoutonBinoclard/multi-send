@@ -219,13 +219,61 @@ client.on("interactionCreate", async (interaction) => {
   if (interaction.commandName === "channels") {
     await interaction.deferReply({ ephemeral: true });
     const blocks = [];
+    
     for (const [guildId, cfg] of Object.entries(channelsConfig)) {
       const name = cfg.nom_serv || guildId;
-      const ann = (cfg.announce || []).map(c=>`#${c.id}${c.ping?.length?` pings:${c.ping.join(',')}`:''}`).join(', ');
-      const start = (cfg.start || []).map(c=>`#${c.id}${c.ping?.length?` pings:${c.ping.join(',')}`:''}`).join(', ');
-      const mid = (cfg.matchid || []).map(c=>`#${c.id}${c.ping?.length?` pings:${c.ping.join(',')}`:''}`).join(', ');
-      blocks.push(`Server: ${name}\n- announce: ${ann || 'none'}\n- start: ${start || 'none'}\n- matchid: ${mid || 'none'}`);
+      
+      // Helper function to format channel info with names
+      const formatChannels = async (channels, guild) => {
+        if (!channels || channels.length === 0) return 'none';
+        
+        const formatted = [];
+        for (const c of channels) {
+          try {
+            const channel = await client.channels.fetch(c.id);
+            const channelName = channel ? `#${channel.name}` : `#${c.id} (not found)`;
+            
+            let pingInfo = '';
+            if (c.ping && c.ping.length > 0) {
+              const roleNames = [];
+              for (const roleId of c.ping) {
+                try {
+                  const role = guild ? guild.roles.cache.get(roleId) : null;
+                  if (role) {
+                    roleNames.push(`@${role.name}`);
+                  } else {
+                    roleNames.push(`@${roleId} (not found)`);
+                  }
+                } catch (err) {
+                  roleNames.push(`@${roleId} (error)`);
+                }
+              }
+              pingInfo = ` pings: ${roleNames.join(', ')}`;
+            }
+            
+            formatted.push(`${channelName}${pingInfo}`);
+          } catch (err) {
+            formatted.push(`#${c.id} (error fetching)${c.ping?.length ? ` pings: ${c.ping.join(', ')}` : ''}`);
+          }
+        }
+        return formatted.join(', ');
+      };
+      
+      try {
+        // Try to fetch the guild to get role information
+        const guild = await client.guilds.fetch(guildId).catch(() => null);
+        
+        const ann = await formatChannels(cfg.announce, guild);
+        const start = await formatChannels(cfg.start, guild);
+        const mid = await formatChannels(cfg.matchid, guild);
+        
+        blocks.push(`Server: ${name}\n- announce: ${ann}\n- start: ${start}\n- matchid: ${mid}`);
+      } catch (err) {
+        console.error(`Error processing guild ${guildId}:`, err);
+        blocks.push(`Server: ${name} (error processing)`);
+      }
     }
+    
     await interaction.editReply({ content: blocks.join('\n\n') || 'No channels configured.' });
     return;
   }
