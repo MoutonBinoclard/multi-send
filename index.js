@@ -183,12 +183,14 @@ client.on("interactionCreate", async (interaction) => {
       async function getChannelRole(config, label) {
         if (!config[guildId] || config[guildId].length === 0) return `    - ${label} : None`;
         const ch = config[guildId][0];
-        let roleName = 'None';
+        let roleNames = 'None';
         if (ch.ping && ch.ping.length > 0) {
-          // Only show first role if multiple
-          roleName = await getRoleName(guild, ch.ping[0]);
+          // Get all role names if multiple
+          const rolePromises = ch.ping.map(roleId => getRoleName(guild, roleId));
+          const roles = await Promise.all(rolePromises);
+          roleNames = roles.join(', ');
         }
-        return `    - ${label} : ${roleName}`;
+        return `    - ${label} : ${roleNames}`;
       }
 
       // Build lines for this guild
