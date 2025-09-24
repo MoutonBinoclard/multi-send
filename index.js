@@ -444,18 +444,22 @@ client.on("interactionCreate", async (interaction) => {
         // Try to fetch the guild
         let guild = null;
         let serverStatus = "❌";
+        let realServerName = serverName; // fallback to config name
+        
         try {
           guild = await client.guilds.fetch(guildId);
           serverStatus = "✅";
+          realServerName = guild.name; // use actual Discord server name
         } catch (err) {
           serverStatus = "❌";
+          // keep the config name as fallback
         }
         
         const announceInfo = await checkChannelAccess(cfg.announce, "Announce", guild);
         const startInfo = await checkChannelAccess(cfg.start, "Start", guild);
         const matchIdInfo = await checkChannelAccess(cfg.matchid, "Match ID", guild);
         
-        blocks.push(`### ${serverName} (${serverStatus})\n${announceInfo}\n${startInfo}\n${matchIdInfo}`);
+        blocks.push(`### ${realServerName} (${serverStatus})\n${announceInfo}\n${startInfo}\n${matchIdInfo}`);
       } catch (err) {
         console.error(`Error processing guild ${guildId}:`, err);
         blocks.push(`### ${serverName} (❌)`);
