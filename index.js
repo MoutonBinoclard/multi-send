@@ -111,7 +111,8 @@ const commands = [
   new SlashCommandBuilder().setName("start").setDescription("Send a message to all configured start channels across all servers").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
   new SlashCommandBuilder().setName("channels").setDescription("List all announce, start, and match id channels and their pinged roles"),
   new SlashCommandBuilder().setName("users").setDescription("List all authorized users"),
-  new SlashCommandBuilder().setName("ask").setDescription("Send an interactive question with a button to all announce channels").addStringOption(o=>o.setName("message").setDescription("The question/message to send").setRequired(true)).addStringOption(o=>o.setName("button_text").setDescription("The text for the button").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead"))
+  new SlashCommandBuilder().setName("ask").setDescription("Send an interactive question with a button to all announce channels").addStringOption(o=>o.setName("message").setDescription("The question/message to send").setRequired(true)).addStringOption(o=>o.setName("button_text").setDescription("The text for the button").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
+  new SlashCommandBuilder().setName("test").setDescription("Test access to all configured channels and roles across all servers")
 ].map(c=>c.toJSON());
 
 const rest = new (require("discord.js").REST)({ version: "10" }).setToken(TOKEN);
@@ -335,6 +336,87 @@ client.on("interactionCreate", async (interaction) => {
     savePolls();
     
     await interaction.editReply({ content: `Poll sent to ${successCount} channel(s). ${errorCount ? `${errorCount} error(s) occurred.` : ''}` });
+    return;
+  }
+
+  if (interaction.commandName === "test") {
+    await interaction.deferReply({ ephemeral: true });
+    const blocks = [];
+    
+    for (const [guildId, cfg] of Object.entries(channelsConfig)) {
+      const serverName = cfg.nom_serv || guildId;
+      
+      // Helper function to check access and format channel info
+      const checkChannelAccess = async (channels, channelType, guild) => {
+        if (!channels || channels.length === 0) return `- ${channelType}: none`;
+        
+        const results = [];
+        for (const c of channels) {
+          try {
+            // Check channel access
+            const channel = await client.channels.fetch(c.id);
+            const channelName = channel ? channel.name : `${c.id} (not found)`;
+            const channelAccess = channel ? "✅ accessible" : "❌ not found";
+            
+            // Check role access
+            let roleInfo = "";
+            if (c.ping && c.ping.length > 0) {
+              const roleResults = [];
+              for (const roleId of c.ping) {
+                try {
+                  const role = guild ? guild.roles.cache.get(roleId) : null;
+                  if (role) {
+                    roleResults.push(`@${role.name} ✅`);
+                  } else {
+                    roleResults.push(`@${roleId} ❌ not found`);
+                  }
+                } catch (err) {
+                  roleResults.push(`@${roleId} ❌ error`);
+                }
+              }
+              roleInfo = `, roles: ${roleResults.join(', ')}`;
+            } else {
+              roleInfo = ", roles: none";
+            }
+            
+            results.push(`  • #${channelName} (${channelAccess})${roleInfo}`);
+          } catch (err) {
+            results.push(`  • #${c.id} (❌ error fetching)${c.ping?.length ? `, roles: ${c.ping.join(', ')} (unchecked)` : ', roles: none'}`);
+          }
+        }
+        return `- ${channelType}:\n${results.join('\n')}`;
+      };
+      
+      try {
+        // Try to fetch the guild
+        let guild = null;
+        let guildAccess = "❌ not accessible";
+        try {
+          guild = await client.guilds.fetch(guildId);
+          guildAccess = "✅ accessible";
+        } catch (err) {
+          guildAccess = "❌ bot not in server";
+        }
+        
+        const announceInfo = await checkChannelAccess(cfg.announce, "Announce", guild);
+        const startInfo = await checkChannelAccess(cfg.start, "Start", guild);
+        const matchIdInfo = await checkChannelAccess(cfg.matchid, "Match ID", guild);
+        
+        blocks.push(`**${serverName}** (${guildAccess})\n${announceInfo}\n${startInfo}\n${matchIdInfo}`);
+      } catch (err) {
+        console.error(`Error processing guild ${guildId}:`, err);
+        blocks.push(`**${serverName}** (❌ error processing)`);
+      }
+    }
+    
+    const content = blocks.join('\n\n') || 'No servers configured.';
+    
+    // Discord has a 2000 character limit for messages, so we might need to split
+    if (content.length > 2000) {
+      await interaction.editReply({ content: content.substring(0, 1997) + "..." });
+    } else {
+      await interaction.editReply({ content: content });
+    }
     return;
   }
 
