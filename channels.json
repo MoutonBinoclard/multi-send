@@ -1,4 +1,8 @@
 {
+  "LOGGING_CONFIG": {
+    "server_id": "1406886631801360484",
+    "channel_id": "1420445908813877340"
+  },
   "1406886631801360484": {
     "nom_serv": "centralized scrims",
     "announce": [

@@ -232,14 +232,39 @@ client.on("interactionCreate", async (interaction) => {
     const channelId = interaction.channelId;
     const roleId = role.id;
     
-    // Log to console
-    console.log('=== SET COMMAND INFO ===');
-    console.log('Server ID:', serverId);
-    console.log('Channel ID:', channelId);
-    console.log('Role ID:', roleId);
-    console.log('========================');
-    
-    await interaction.editReply({ content: 'info sent' });
+    try {
+      // Get logging configuration
+      const loggingConfig = channelsConfig.LOGGING_CONFIG;
+      if (!loggingConfig) {
+        await interaction.editReply({ content: 'Logging channel not configured' });
+        return;
+      }
+      
+      // Fetch server and channel information
+      const guild = await client.guilds.fetch(serverId);
+      const currentChannel = await client.channels.fetch(channelId);
+      const loggingChannel = await client.channels.fetch(loggingConfig.channel_id);
+      
+      // Format the message
+      const message = `**SET Command Info:**
+      
+**Server:** ${guild.name}
+**Server ID:** ${serverId}
+
+**Channel:** #${currentChannel.name}
+**Channel ID:** ${channelId}
+
+**Role:** @${role.name}
+**Role ID:** ${roleId}`;
+      
+      // Send to logging channel
+      await loggingChannel.send({ content: message });
+      
+      await interaction.editReply({ content: 'info sent' });
+    } catch (error) {
+      console.error('Error in set command:', error);
+      await interaction.editReply({ content: 'Error sending info' });
+    }
     return;
   }
 
