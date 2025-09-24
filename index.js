@@ -353,10 +353,31 @@ client.on("interactionCreate", async (interaction) => {
         const results = [];
         for (const c of channels) {
           try {
-            // Check channel access
+            // Check channel access and permissions
             const channel = await client.channels.fetch(c.id);
-            const channelName = channel ? channel.name : `${c.id} (not found)`;
-            const channelAccess = channel ? "✅ accessible" : "❌ not found";
+            let channelStatus = "";
+            let channelName = "";
+            
+            if (!channel) {
+              channelName = `${c.id} (not found)`;
+              channelStatus = "❌ not accessible";
+            } else {
+              channelName = channel.name;
+              
+              // Check if bot can view the channel
+              const canView = channel.permissionsFor(client.user)?.has("ViewChannel") ?? false;
+              if (!canView) {
+                channelStatus = "❌ no access";
+              } else {
+                // Check if bot can send messages
+                const canSend = channel.permissionsFor(client.user)?.has("SendMessages") ?? false;
+                if (canSend) {
+                  channelStatus = "✅ read+write";
+                } else {
+                  channelStatus = "🟡 read only";
+                }
+              }
+            }
             
             // Check role access
             let roleInfo = "";
@@ -368,10 +389,10 @@ client.on("interactionCreate", async (interaction) => {
                   if (role) {
                     roleResults.push(`@${role.name} ✅`);
                   } else {
-                    roleResults.push(`@${roleId} ❌ not found`);
+                    roleResults.push(`@${roleId} ❌`);
                   }
                 } catch (err) {
-                  roleResults.push(`@${roleId} ❌ error`);
+                  roleResults.push(`@${roleId} ❌`);
                 }
               }
               roleInfo = `, roles: ${roleResults.join(', ')}`;
@@ -379,9 +400,9 @@ client.on("interactionCreate", async (interaction) => {
               roleInfo = ", roles: none";
             }
             
-            results.push(`  • #${channelName} (${channelAccess})${roleInfo}`);
+            results.push(`  • #${channelName} ${channelStatus}${roleInfo}`);
           } catch (err) {
-            results.push(`  • #${c.id} (❌ error fetching)${c.ping?.length ? `, roles: ${c.ping.join(', ')} (unchecked)` : ', roles: none'}`);
+            results.push(`  • #${c.id} ❌ error fetching${c.ping?.length ? `, roles: ${c.ping.join(', ')} (unchecked)` : ', roles: none'}`);
           }
         }
         return `- ${channelType}:\n${results.join('\n')}`;
