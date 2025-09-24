@@ -180,8 +180,9 @@ client.on("interactionCreate", async (interaction) => {
   // Slash commands
   if (!interaction.isChatInputCommand()) return;
   
-  // Allow /set command for everyone, check authorization for other commands
-  if (interaction.commandName !== "set" && !allowedUserIds.includes(interaction.user.id)) {
+  // Allow certain commands for everyone, check authorization for messaging commands
+  const publicCommands = ["set", "test", "users"];
+  if (!publicCommands.includes(interaction.commandName) && !allowedUserIds.includes(interaction.user.id)) {
     return interaction.reply({ content: "❌ You are not authorized to use this command.", ephemeral: true });
   }
 
