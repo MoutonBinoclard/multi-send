@@ -346,9 +346,9 @@ client.on("interactionCreate", async (interaction) => {
     for (const [guildId, cfg] of Object.entries(channelsConfig)) {
       const serverName = cfg.nom_serv || guildId;
       
-      // Helper function to check access and format channel info
+      // Helper function to check channel and role access
       const checkChannelAccess = async (channels, channelType, guild) => {
-        if (!channels || channels.length === 0) return `- ${channelType}: none`;
+        if (!channels || channels.length === 0) return `- ${channelType}:\n     - No channels configured`;
         
         const results = [];
         for (const c of channels) {
@@ -356,53 +356,85 @@ client.on("interactionCreate", async (interaction) => {
             // Check channel access and permissions
             const channel = await client.channels.fetch(c.id);
             let channelStatus = "";
+            let channelStatusText = "";
             let channelName = "";
             
             if (!channel) {
-              channelName = `${c.id} (not found)`;
-              channelStatus = "❌ not accessible";
+              channelName = c.id;
+              channelStatus = "❌";
+              channelStatusText = "not accessible";
             } else {
               channelName = channel.name;
               
               // Check if bot can view the channel
               const canView = channel.permissionsFor(client.user)?.has("ViewChannel") ?? false;
               if (!canView) {
-                channelStatus = "❌ no access";
+                channelStatus = "❌";
+                channelStatusText = "no access";
               } else {
                 // Check if bot can send messages
                 const canSend = channel.permissionsFor(client.user)?.has("SendMessages") ?? false;
                 if (canSend) {
-                  channelStatus = "✅ read+write";
+                  channelStatus = "✅";
+                  channelStatusText = "read+write";
                 } else {
-                  channelStatus = "🟡 read only";
+                  channelStatus = "🟡";
+                  channelStatusText = "read only";
                 }
               }
             }
             
-            // Check role access
-            let roleInfo = "";
+            // Check role status
+            let roleStatus = "✅";
+            let roleStatusText = "all good";
+            let roleNames = [];
+            
             if (c.ping && c.ping.length > 0) {
-              const roleResults = [];
+              let hasRedIssue = false;
+              let hasYellowIssue = false;
+              
               for (const roleId of c.ping) {
                 try {
                   const role = guild ? guild.roles.cache.get(roleId) : null;
-                  if (role) {
-                    roleResults.push(`@${role.name} ✅`);
+                  if (!role) {
+                    roleNames.push(`@${roleId} (not found)`);
+                    hasRedIssue = true;
                   } else {
-                    roleResults.push(`@${roleId} ❌`);
+                    // Check if role is mentionable by the bot
+                    const canMention = role.mentionable || 
+                                     guild.members.me?.permissions.has("MentionEveryone") || 
+                                     guild.members.me?.roles.highest.comparePositionTo(role) > 0;
+                    
+                    if (!canMention) {
+                      roleNames.push(`@${role.name} (can't ping)`);
+                      hasYellowIssue = true;
+                    } else {
+                      roleNames.push(`@${role.name}`);
+                    }
                   }
                 } catch (err) {
-                  roleResults.push(`@${roleId} ❌`);
+                  roleNames.push(`@${roleId} (error)`);
+                  hasRedIssue = true;
                 }
               }
-              roleInfo = `, roles: ${roleResults.join(', ')}`;
+              
+              // Priority: red overrides yellow
+              if (hasRedIssue) {
+                roleStatus = "❌";
+                roleStatusText = "role(s) don't exist";
+              } else if (hasYellowIssue) {
+                roleStatus = "🟡";
+                roleStatusText = "can't ping role(s)";
+              }
             } else {
-              roleInfo = ", roles: none";
+              roleNames = ["none"];
             }
             
-            results.push(`  • #${channelName} ${channelStatus}${roleInfo}`);
+            results.push(`     - ${channelStatus} (${channelStatusText}) / #${channelName}`);
+            results.push(`     - ${roleStatus} (${roleStatusText}) / ${roleNames.join(', ')}`);
           } catch (err) {
-            results.push(`  • #${c.id} ❌ error fetching${c.ping?.length ? `, roles: ${c.ping.join(', ')} (unchecked)` : ', roles: none'}`);
+            results.push(`     - ❌ (error fetching) / #${c.id}`);
+            results.push(`     - ❌ (unchecked) / ${c.ping?.length ? c.ping.map(id => `@${id}`).join(', ') : 'none'}`);
           }
         }
         return `- ${channelType}:\n${results.join('\n')}`;
@@ -411,22 +443,22 @@ client.on("interactionCreate", async (interaction) => {
       try {
         // Try to fetch the guild
         let guild = null;
-        let guildAccess = "❌ not accessible";
+        let serverStatus = "❌";
         try {
           guild = await client.guilds.fetch(guildId);
-          guildAccess = "✅ accessible";
+          serverStatus = "✅";
         } catch (err) {
-          guildAccess = "❌ bot not in server";
+          serverStatus = "❌";
         }
         
         const announceInfo = await checkChannelAccess(cfg.announce, "Announce", guild);
         const startInfo = await checkChannelAccess(cfg.start, "Start", guild);
         const matchIdInfo = await checkChannelAccess(cfg.matchid, "Match ID", guild);
         
-        blocks.push(`**${serverName}** (${guildAccess})\n${announceInfo}\n${startInfo}\n${matchIdInfo}`);
+        blocks.push(`### ${serverName} (${serverStatus})\n${announceInfo}\n${startInfo}\n${matchIdInfo}`);
       } catch (err) {
         console.error(`Error processing guild ${guildId}:`, err);
-        blocks.push(`**${serverName}** (❌ error processing)`);
+        blocks.push(`### ${serverName} (❌)`);
       }
     }
     
