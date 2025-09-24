@@ -106,13 +106,13 @@ function cleanupOldPolls() {
 
 // Slash commands
 const commands = [
-  new SlashCommandBuilder().setName("matchid").setDescription("Send a message to all configured match channels across all servers").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
-  new SlashCommandBuilder().setName("announce").setDescription("Send a message to all configured announce channels across all servers").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
-  new SlashCommandBuilder().setName("start").setDescription("Send a message to all configured start channels across all servers").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
-  new SlashCommandBuilder().setName("users").setDescription("List all authorized users"),
-  new SlashCommandBuilder().setName("ask").setDescription("Send an interactive question with a button to all announce channels").addStringOption(o=>o.setName("message").setDescription("The question/message to send").setRequired(true)).addStringOption(o=>o.setName("button_text").setDescription("The text for the button").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
-  new SlashCommandBuilder().setName("test").setDescription("Test access to all configured channels and roles across all servers"),
-  new SlashCommandBuilder().setName("set").setDescription("Log server, channel, and role information").addRoleOption(o=>o.setName("role").setDescription("The role to ping").setRequired(true))
+  new SlashCommandBuilder().setName("matchid").setDescription("Share a match-id to play scrims").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
+  new SlashCommandBuilder().setName("announce").setDescription("Make an annoucement. No code here").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
+  new SlashCommandBuilder().setName("start").setDescription("Use this command to send the first match-id").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
+  new SlashCommandBuilder().setName("users").setDescription("Show all the users that can send messages with this bot"),
+  new SlashCommandBuilder().setName("ask").setDescription("Send a question with a button. For instance who is interested").addStringOption(o=>o.setName("message").setDescription("The question/message to send").setRequired(true)).addStringOption(o=>o.setName("button_text").setDescription("The text for the button").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
+  new SlashCommandBuilder().setName("channels").setDescription("Test all the configured channels and roles across all servers"),
+  new SlashCommandBuilder().setName("set").setDescription("Send the current channel and the role to ping to Mouton Binoclard, to sync your server").addRoleOption(o=>o.setName("role").setDescription("The role to ping").setRequired(true))
 ].map(c=>c.toJSON());
 
 const rest = new (require("discord.js").REST)({ version: "10" }).setToken(TOKEN);
@@ -181,7 +181,7 @@ client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   
   // Allow certain commands for everyone, check authorization for messaging commands
-  const publicCommands = ["set", "test", "users"];
+  const publicCommands = ["set", "channels", "users"];
   if (!publicCommands.includes(interaction.commandName) && !allowedUserIds.includes(interaction.user.id)) {
     return interaction.reply({ content: "❌ You are not authorized to use this command.", ephemeral: true });
   }
@@ -325,7 +325,7 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  if (interaction.commandName === "test") {
+  if (interaction.commandName === "channels") {
     await interaction.deferReply({ ephemeral: true });
     const blocks = [];
     
