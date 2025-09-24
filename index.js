@@ -109,7 +109,6 @@ const commands = [
   new SlashCommandBuilder().setName("matchid").setDescription("Send a message to all configured match channels across all servers").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
   new SlashCommandBuilder().setName("announce").setDescription("Send a message to all configured announce channels across all servers").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
   new SlashCommandBuilder().setName("start").setDescription("Send a message to all configured start channels across all servers").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
-  new SlashCommandBuilder().setName("channels").setDescription("List all announce, start, and match id channels and their pinged roles"),
   new SlashCommandBuilder().setName("users").setDescription("List all authorized users"),
   new SlashCommandBuilder().setName("ask").setDescription("Send an interactive question with a button to all announce channels").addStringOption(o=>o.setName("message").setDescription("The question/message to send").setRequired(true)).addStringOption(o=>o.setName("button_text").setDescription("The text for the button").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
   new SlashCommandBuilder().setName("test").setDescription("Test access to all configured channels and roles across all servers")
@@ -215,68 +214,6 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
     return { successCount, errorCount };
-  }
-
-  if (interaction.commandName === "channels") {
-    await interaction.deferReply({ ephemeral: true });
-    const blocks = [];
-    
-    for (const [guildId, cfg] of Object.entries(channelsConfig)) {
-      const name = cfg.nom_serv || guildId;
-      
-      // Helper function to format channel info with names
-      const formatChannels = async (channels, guild) => {
-        if (!channels || channels.length === 0) return 'none';
-        
-        const formatted = [];
-        for (const c of channels) {
-          try {
-            const channel = await client.channels.fetch(c.id);
-            const channelName = channel ? `#${channel.name}` : `#${c.id} (not found)`;
-            
-            let pingInfo = '';
-            if (c.ping && c.ping.length > 0) {
-              const roleNames = [];
-              for (const roleId of c.ping) {
-                try {
-                  const role = guild ? guild.roles.cache.get(roleId) : null;
-                  if (role) {
-                    roleNames.push(`@${role.name}`);
-                  } else {
-                    roleNames.push(`@${roleId} (not found)`);
-                  }
-                } catch (err) {
-                  roleNames.push(`@${roleId} (error)`);
-                }
-              }
-              pingInfo = ` pings: ${roleNames.join(', ')}`;
-            }
-            
-            formatted.push(`${channelName}${pingInfo}`);
-          } catch (err) {
-            formatted.push(`#${c.id} (error fetching)${c.ping?.length ? ` pings: ${c.ping.join(', ')}` : ''}`);
-          }
-        }
-        return formatted.join(', ');
-      };
-      
-      try {
-        // Try to fetch the guild to get role information
-        const guild = await client.guilds.fetch(guildId).catch(() => null);
-        
-        const ann = await formatChannels(cfg.announce, guild);
-        const start = await formatChannels(cfg.start, guild);
-        const mid = await formatChannels(cfg.matchid, guild);
-        
-        blocks.push(`Server: ${name}\n- announce: ${ann}\n- start: ${start}\n- matchid: ${mid}`);
-      } catch (err) {
-        console.error(`Error processing guild ${guildId}:`, err);
-        blocks.push(`Server: ${name} (error processing)`);
-      }
-    }
-    
-    await interaction.editReply({ content: blocks.join('\n\n') || 'No channels configured.' });
-    return;
   }
 
   if (interaction.commandName === "users") {
