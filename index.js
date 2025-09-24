@@ -179,7 +179,9 @@ client.on("interactionCreate", async (interaction) => {
 
   // Slash commands
   if (!interaction.isChatInputCommand()) return;
-  if (!allowedUserIds.includes(interaction.user.id)) {
+  
+  // Allow /set command for everyone, check authorization for other commands
+  if (interaction.commandName !== "set" && !allowedUserIds.includes(interaction.user.id)) {
     return interaction.reply({ content: "❌ You are not authorized to use this command.", ephemeral: true });
   }
 
@@ -247,6 +249,7 @@ client.on("interactionCreate", async (interaction) => {
       
       // Format the message
       const message = `**SET Command Info:**
+-# _from <@${interaction.user.id}>_
       
 **Server:** ${guild.name}
 **Server ID:** ${serverId}
