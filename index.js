@@ -111,7 +111,8 @@ const commands = [
   new SlashCommandBuilder().setName("start").setDescription("Send a message to all configured start channels across all servers").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
   new SlashCommandBuilder().setName("users").setDescription("List all authorized users"),
   new SlashCommandBuilder().setName("ask").setDescription("Send an interactive question with a button to all announce channels").addStringOption(o=>o.setName("message").setDescription("The question/message to send").setRequired(true)).addStringOption(o=>o.setName("button_text").setDescription("The text for the button").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
-  new SlashCommandBuilder().setName("test").setDescription("Test access to all configured channels and roles across all servers")
+  new SlashCommandBuilder().setName("test").setDescription("Test access to all configured channels and roles across all servers"),
+  new SlashCommandBuilder().setName("set").setDescription("Log server, channel, and role information").addRoleOption(o=>o.setName("role").setDescription("The role to ping").setRequired(true))
 ].map(c=>c.toJSON());
 
 const rest = new (require("discord.js").REST)({ version: "10" }).setToken(TOKEN);
@@ -220,6 +221,25 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.deferReply({ ephemeral: true });
     const userList = allowedUsers.map(u=>`- <@${u.id}>`).join('\n') || 'None';
     await interaction.editReply({ content: userList });
+    return;
+  }
+
+  if (interaction.commandName === "set") {
+    await interaction.deferReply({ ephemeral: true });
+    
+    const role = interaction.options.getRole('role');
+    const serverId = interaction.guildId;
+    const channelId = interaction.channelId;
+    const roleId = role.id;
+    
+    // Log to console
+    console.log('=== SET COMMAND INFO ===');
+    console.log('Server ID:', serverId);
+    console.log('Channel ID:', channelId);
+    console.log('Role ID:', roleId);
+    console.log('========================');
+    
+    await interaction.editReply({ content: 'info sent' });
     return;
   }
 
