@@ -43,15 +43,36 @@ function loadPolls() {
     const pollsData = JSON.parse(data);
     
     // Convert clickedUsers arrays back to Sets and restore polls
+    const now = Date.now();
+    let expiredCount = 0;
+    
     for (const [pollId, pollData] of Object.entries(pollsData.polls || {})) {
       pollData.clickedUsers = new Set(pollData.clickedUsers || []);
+      
+      // Check if poll has expired
+      if (pollData.expiresAt && now > pollData.expiresAt) {
+        // Don't restore expired polls
+        expiredCount++;
+        continue;
+      }
+      
       activePolls.set(pollId, pollData);
+      
+      // Set up timeout for remaining time if poll has expiration
+      if (pollData.expiresAt) {
+        const remainingMs = pollData.expiresAt - now;
+        if (remainingMs > 0) {
+          setTimeout(async () => {
+            await expirePoll(pollId);
+          }, remainingMs);
+        }
+      }
     }
     
     // Restore poll counter
     pollCounter = pollsData.pollCounter || 0;
     
-    console.log(`Loaded ${activePolls.size} active polls from storage`);
+    console.log(`Loaded ${activePolls.size} active polls from storage${expiredCount > 0 ? ` (${expiredCount} expired polls were not restored)` : ''}`);
   } catch (err) {
     if (err.code !== 'ENOENT') {
       console.error("Error loading polls.json:", err);
@@ -108,13 +129,68 @@ function cleanupOldPolls() {
   }
 }
 
+// Function to expire a poll by crossing out the text and removing buttons
+async function expirePoll(pollId) {
+  const poll = activePolls.get(pollId);
+  if (!poll) return;
+  
+  console.log(`Expiring poll ${pollId}`);
+  
+  const wait = (ms) => new Promise(r => setTimeout(r, ms));
+  
+  for (const ref of poll.messageRefs || []) {
+    try {
+      const channel = await client.channels.fetch(ref.channelId);
+      if (!channel || !channel.isTextBased()) continue;
+      
+      const msg = await channel.messages.fetch(ref.messageId).catch(() => null);
+      if (!msg) continue;
+      
+      const fromLine = `-# _from <@${poll.senderId}>_`;
+      const clickCount = poll.clickedUsers.size;
+      
+      let content;
+      if (poll.noPing) {
+        let roleText = '';
+        const guild = msg.guild || null;
+        if (guild && ref.ping && ref.ping.length) {
+          const names = [];
+          for (const rid of ref.ping) {
+            try {
+              const role = await guild.roles.fetch(rid);
+              names.push(role ? role.name : `Unknown (${rid})`);
+            } catch {
+              names.push(`Unknown (${rid})`);
+            }
+          }
+          if (names.length) roleText = `(Ping roles: ${names.join(', ')})\n`;
+        }
+        content = `${fromLine}\n${roleText}~~${poll.messageData.message}~~\n(${clickCount} clicked) - **EXPIRED**`;
+      } else {
+        const pings = (ref.ping || []).map(id => `<@&${id}>`).join(' ');
+        content = `${fromLine}\n${pings ? pings + '\n' : ''}~~${poll.messageData.message}~~\n(${clickCount} clicked) - **EXPIRED**`;
+      }
+      
+      // Remove buttons by sending empty components array
+      await msg.edit({ content, components: [], allowedMentions: { parse: [] } });
+      await wait(120);
+    } catch (e) {
+      console.error(`Failed to expire message ${ref.messageId}:`, e);
+    }
+  }
+  
+  // Remove poll from active polls
+  activePolls.delete(pollId);
+  savePolls();
+}
+
 // Slash commands
 const commands = [
   new SlashCommandBuilder().setName("matchid").setDescription("Share a match-id to play scrims").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
   new SlashCommandBuilder().setName("announce").setDescription("Make an annoucement. No code here").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
   new SlashCommandBuilder().setName("start").setDescription("Use this command to send the first match-id").addStringOption(o=>o.setName("message").setDescription("The message to send").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
   new SlashCommandBuilder().setName("users").setDescription("Show all the users that can send messages with this bot"),
-  new SlashCommandBuilder().setName("ask").setDescription("Send a question with a button. For instance who is interested").addStringOption(o=>o.setName("message").setDescription("The question/message to send").setRequired(true)).addStringOption(o=>o.setName("button_text").setDescription("The text for the button").setRequired(true)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
+  new SlashCommandBuilder().setName("ask").setDescription("Send a question with a button. For instance who is interested").addStringOption(o=>o.setName("message").setDescription("The question/message to send").setRequired(true)).addStringOption(o=>o.setName("button_text").setDescription("The text for the button").setRequired(true)).addIntegerOption(o=>o.setName("time").setDescription("Time in minutes before the poll expires (5-1440, default: 60)").setRequired(false)).addBooleanOption(o=>o.setName("no_ping").setDescription("Don't ping roles, show role names instead")),
   new SlashCommandBuilder().setName("channels").setDescription("Test all the configured channels and roles across all servers"),
   new SlashCommandBuilder().setName("set").setDescription("Send the current channel and the role to ping to Mouton Binoclard, to sync your server").addRoleOption(o=>o.setName("role").setDescription("The role to ping").setRequired(true))
 ].map(c=>c.toJSON());
@@ -147,6 +223,13 @@ client.on("interactionCreate", async (interaction) => {
       
       const userId = interaction.user.id;
       const now = Date.now();
+      
+      // Check if poll has expired
+      if (poll.expiresAt && now > poll.expiresAt) {
+        // Expire the poll if it hasn't been expired yet
+        await expirePoll(customId);
+        return interaction.editReply({ content: "❌ This poll has expired." });
+      }
       
       // Check cooldown to prevent rapid clicking
       const lastClick = buttonCooldowns.get(userId);
@@ -315,11 +398,26 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.deferReply({ ephemeral: true });
     const message = interaction.options.getString('message');
     const buttonText = interaction.options.getString('button_text');
+    let timeInMinutes = interaction.options.getInteger('time') || 60;
     const noPing = interaction.options.getBoolean('no_ping') || false;
+    
+    // Validate time parameter (5-1440 minutes)
+    if (timeInMinutes < 5 || timeInMinutes > 1440) {
+      timeInMinutes = 60;
+    }
 
     let successCount = 0, errorCount = 0;
     pollCounter++; const pollId = `poll_${pollCounter}_${Date.now()}`;
-    const pollData = { messageData: { message, buttonText }, clickedUsers: new Set(), messageRefs: [], noPing, senderId: interaction.user.id };
+    const expiresAt = Date.now() + (timeInMinutes * 60 * 1000);
+    const pollData = { 
+      messageData: { message, buttonText }, 
+      clickedUsers: new Set(), 
+      messageRefs: [], 
+      noPing, 
+      senderId: interaction.user.id, 
+      expiresAt,
+      timeInMinutes 
+    };
 
     const mainButton = new ButtonBuilder().setCustomId(pollId).setLabel(buttonText).setStyle(ButtonStyle.Primary);
     const showButton = new ButtonBuilder().setCustomId(`show_${pollId}`).setLabel("Show who clicked").setStyle(ButtonStyle.Secondary);
@@ -360,7 +458,12 @@ client.on("interactionCreate", async (interaction) => {
     // Save the new poll data
     savePolls();
     
-    await interaction.editReply({ content: `Poll sent to ${successCount} channel(s). ${errorCount ? `${errorCount} error(s) occurred.` : ''}` });
+    // Set up timeout to expire the poll
+    setTimeout(async () => {
+      await expirePoll(pollId);
+    }, timeInMinutes * 60 * 1000);
+    
+    await interaction.editReply({ content: `Poll sent to ${successCount} channel(s). ${errorCount ? `${errorCount} error(s) occurred.` : ''}\nPoll will expire in ${timeInMinutes} minute(s).` });
     return;
   }
 
