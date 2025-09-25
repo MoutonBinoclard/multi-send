@@ -472,6 +472,9 @@ client.on("interactionCreate", async (interaction) => {
     const blocks = [];
     
     for (const [guildId, cfg] of Object.entries(channelsConfig)) {
+      // Skip the logging config entry
+      if (guildId === "LOGGING_CONFIG") continue;
+      
       const serverName = cfg.nom_serv || guildId;
       
       // Helper function to check channel and role access
@@ -504,10 +507,10 @@ client.on("interactionCreate", async (interaction) => {
                 const canSend = channel.permissionsFor(client.user)?.has("SendMessages") ?? false;
                 if (canSend) {
                   channelStatus = "✅";
-                  channelStatusText = "read+write";
+                  channelStatusText = "r+w";
                 } else {
                   channelStatus = "🟡";
-                  channelStatusText = "read only";
+                  channelStatusText = "r only";
                 }
               }
             }
@@ -559,10 +562,10 @@ client.on("interactionCreate", async (interaction) => {
             }
             
             results.push(`     - ${channelStatus} (${channelStatusText}) / #${channelName}`);
-            results.push(`     - ${roleStatus} (${roleStatusText}) / ${roleNames.join(', ')}`);
+            results.push(`     - ${roleStatus} / ${roleNames.join(', ')}`);
           } catch (err) {
             results.push(`     - ❌ (error fetching) / #${c.id}`);
-            results.push(`     - ❌ (unchecked) / ${c.ping?.length ? c.ping.map(id => `@${id}`).join(', ') : 'none'}`);
+            results.push(`     - ❌ / ${c.ping?.length ? c.ping.map(id => `@${id}`).join(', ') : 'none'}`);
           }
         }
         return `- ${channelType}:\n${results.join('\n')}`;
