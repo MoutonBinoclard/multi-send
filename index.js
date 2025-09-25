@@ -32,6 +32,10 @@ try {
 const activePolls = new Map();
 let pollCounter = 0;
 
+// Cooldown tracking for button interactions (userId -> timestamp)
+const buttonCooldowns = new Map();
+const BUTTON_COOLDOWN_MS = 2000; // 2 seconds cooldown
+
 // Helper functions for persistent poll storage
 function loadPolls() {
   try {
@@ -123,19 +127,38 @@ client.on("interactionCreate", async (interaction) => {
   // Buttons first
   if (interaction.isButton()) {
     const customId = interaction.customId;
-    if (customId.startsWith("show_")) {
-      const pollId = customId.slice(5);
-      const poll = activePolls.get(pollId);
-      if (!poll) return interaction.reply({ content: "❌ This poll is no longer active.", ephemeral: true });
-      const ids = Array.from(poll.clickedUsers);
-      if (!ids.length) return interaction.reply({ content: "No one has clicked yet.", ephemeral: true });
-      const display = ids.map(id => `<@${id}>`).join("\n");
-      return interaction.reply({ content: `Who clicked (${ids.length}):\n${display}`.slice(0,1900), ephemeral: true });
-    }
-    const poll = activePolls.get(customId);
-    if (!poll) return interaction.reply({ content: "❌ This poll is no longer active.", ephemeral: true });
-    const userId = interaction.user.id;
-    if (poll.clickedUsers.has(userId)) return interaction.reply({ content: "❌ You have already responded to this poll.", ephemeral: true });
+    
+    try {
+      // Always defer the reply first to prevent timeout
+      await interaction.deferReply({ ephemeral: true });
+      
+      if (customId.startsWith("show_")) {
+        const pollId = customId.slice(5);
+        const poll = activePolls.get(pollId);
+        if (!poll) return interaction.editReply({ content: "❌ This poll is no longer active." });
+        const ids = Array.from(poll.clickedUsers);
+        if (!ids.length) return interaction.editReply({ content: "No one has clicked yet." });
+        const display = ids.map(id => `<@${id}>`).join("\n");
+        return interaction.editReply({ content: `Who clicked (${ids.length}):\n${display}`.slice(0,1900) });
+      }
+      
+      const poll = activePolls.get(customId);
+      if (!poll) return interaction.editReply({ content: "❌ This poll is no longer active." });
+      
+      const userId = interaction.user.id;
+      const now = Date.now();
+      
+      // Check cooldown to prevent rapid clicking
+      const lastClick = buttonCooldowns.get(userId);
+      if (lastClick && now - lastClick < BUTTON_COOLDOWN_MS) {
+        const remainingMs = BUTTON_COOLDOWN_MS - (now - lastClick);
+        return interaction.editReply({ content: `⏱️ Please wait ${Math.ceil(remainingMs / 1000)} second(s) before clicking again.` });
+      }
+      
+      if (poll.clickedUsers.has(userId)) return interaction.editReply({ content: "❌ You have already responded to this poll." });
+      
+      // Set cooldown for this user
+      buttonCooldowns.set(userId, now);
     poll.clickedUsers.add(userId);
     const clickCount = poll.clickedUsers.size;
 
@@ -174,7 +197,23 @@ client.on("interactionCreate", async (interaction) => {
         console.error(`Edit failed for message ${ref.messageId}:`, e);
       }
     }
-    return interaction.reply({ content: "✅ Your response has been recorded!", ephemeral: true });
+    
+    // Successfully recorded the response
+    return interaction.editReply({ content: "✅ Your response has been recorded!" });
+    
+    } catch (error) {
+      console.error("Button interaction error:", error);
+      // Check if we can still respond to the interaction
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          return interaction.reply({ content: "❌ An error occurred while processing your request.", ephemeral: true });
+        } else if (interaction.deferred) {
+          return interaction.editReply({ content: "❌ An error occurred while processing your request." });
+        }
+      } catch (replyError) {
+        console.error("Failed to send error response:", replyError);
+      }
+    }
   }
 
   // Slash commands
@@ -484,6 +523,16 @@ client.once("ready", () => {
   
   // Set up periodic cleanup (every 24 hours)
   setInterval(cleanupOldPolls, 24 * 60 * 60 * 1000);
+  
+  // Clean up old cooldown entries every 10 minutes
+  setInterval(() => {
+    const now = Date.now();
+    for (const [userId, timestamp] of buttonCooldowns.entries()) {
+      if (now - timestamp > BUTTON_COOLDOWN_MS * 10) { // Keep for 10x cooldown time
+        buttonCooldowns.delete(userId);
+      }
+    }
+  }, 10 * 60 * 1000);
 });
 
 // HTTP server for hosting platforms
